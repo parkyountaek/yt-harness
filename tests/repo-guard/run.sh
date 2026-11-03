@@ -20,12 +20,16 @@ setup() {
   mkdir -p .githooks docs
   cp "$SRC/.githooks/repo_guard.py" "$SRC/.githooks/pre-commit" "$SRC/.githooks/pre-push" .githooks/
   cp "$SRC/allowlist.txt" .
-  git add -A && git commit -q -m init
+  git add -A && git commit -q -m init || { echo "SETUP FAILED"; exit 2; }
 }
 
 expect() {  # expect <ok|reject> <name> <command...>
+  # A rejection only counts when the guard itself printed its verdict; a crash or a
+  # failing git command is reported as an error, not as a successful block.
   want=$1; name=$2; shift 2
-  if "$@" >/dev/null 2>&1; then got=ok; else got=reject; fi
+  if "$@" >/dev/null 2>"$TMP/err"; then got=ok
+  elif grep -q "yt-harness repo guard: rejected" "$TMP/err"; then got=reject
+  else got="error: $(tail -1 "$TMP/err")"; fi
   if [ "$got" = "$want" ]; then pass=$((pass + 1)); echo "PASS $name"
   else fail=$((fail + 1)); echo "FAIL $name (want $want, got $got)"; fi
 }
@@ -107,6 +111,26 @@ git config user.email "someone@example.com"
 printf 'x\n' > docs/e.md; git add docs/e.md
 git -c core.hooksPath=/dev/null commit -q -m "non-noreply author"
 expect reject "push rejects non-noreply author" git push -q origin main
+
+# Merge commits: a file added while resolving a merge must be caught on push.
+setup
+git checkout -q -b side && commit_file docs/a.md a && git checkout -q main && commit_file docs/b.md b
+git merge -q --no-commit side >/dev/null; printf 'x\n' > stray.txt; git add stray.txt
+git -c core.hooksPath=/dev/null commit -q -m merge
+expect reject "push catches file added in a merge" git push -q origin main
+
+# Type changes: a tracked file replaced by a symlink to a personal path.
+setup; commit_file docs/t.md "plain"
+rm docs/t.md; ln -s "/Us${E}ers/alice/secret" docs/t.md; git add docs/t.md
+expect reject "file turned into symlink to personal path" git commit -q -m typechange
+
+# Committer email is public too.
+setup; printf 'c\n' > docs/c.md; git add docs/c.md
+GIT_COMMITTER_EMAIL=someone@example.com git -c core.hooksPath=/dev/null commit -q -m c
+expect reject "push rejects non-noreply committer" git push -q origin main
+
+setup; expect reject "personal path without trailing slash" commit_file docs/h.md "HOME=/Us${E}ers/alice"
+setup; expect ok     "shared folder is not personal"       commit_file docs/s.md "see /Users/Shared/x"
 
 echo "passed=$pass failed=$fail"
 [ "$fail" -eq 0 ]

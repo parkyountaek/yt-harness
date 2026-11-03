@@ -21,6 +21,9 @@ def runtime_argv(runtime, harness, out_dir, session_id, prompt, resume=False):
         return ["claude", "--plugin-dir", harness_path, *sid, "--dangerously-skip-permissions", prompt]
     # Codex: the shared sandbox is the enforcement layer, so Codex's own sandbox is off
     # (the two cannot be nested). The harness plugin is installed disabled and enabled per run.
+    if "." in out_dir:
+        # Codex splits -c keys on dots, so the trust key would be misread.
+        raise RuntimeError(f"task folder path must not contain '.': {out_dir}")
     flags = ["-c", f"plugins.{harness}@yt-harness.enabled=true",
              "-c", f"projects.{out_dir}.trust_level=trusted",
              "--sandbox", "danger-full-access", "--ask-for-approval", "never"]
@@ -29,13 +32,36 @@ def runtime_argv(runtime, harness, out_dir, session_id, prompt, resume=False):
     return ["codex", *flags, prompt]
 
 
-def find_codex_session(out_dir, since, timeout=30):
+STARTUP_GRACE = 4  # seconds a runtime must stay alive to count as started
+
+
+def codex_plugin_problem(harness_name, version):
+    """Codex runs an installed copy of the harness plugin; it must exist and match the source."""
+    cache = os.path.join(core.HOME, ".codex", "plugins", "cache", "yt-harness", harness_name)
+    if not os.path.isdir(cache):
+        return f"Codex does not have {harness_name} installed; run yt-core/bin/yt-setup"
+    if version and not os.path.isdir(os.path.join(cache, str(version))):
+        return f"Codex has an old copy of {harness_name} (want {version}); run yt-core/bin/yt-setup"
+    return None
+
+
+def confirm_started(runner, handle):
+    """A runner can start a terminal whose runtime exits at once; require it to stay up."""
+    end = time.time() + STARTUP_GRACE
+    while time.time() < end:
+        if not runner.alive(handle):
+            return False
+        time.sleep(0.5)
+    return runner.alive(handle)
+
+
+def find_codex_session(out_dir, since, timeout=30, scan=20):
     """Codex cannot preset a session id; read it from the rollout file whose cwd is out_dir."""
     root = os.path.join(core.HOME, ".codex", "sessions")
     end = time.time() + timeout
     while time.time() < end:
         paths = sorted(glob.glob(os.path.join(root, "*", "*", "*", "*.jsonl")), key=os.path.getmtime, reverse=True)
-        for path in paths[:20]:
+        for path in paths[:scan]:
             if os.path.getmtime(path) < since:
                 break
             try:
@@ -70,6 +96,8 @@ def start(task_id, harness_name, harness, runtime, runner_name, session_id, resu
            "PATH": os.pathsep.join([os.path.join(core.CORE, "bin"), py_bin, os.environ.get("PATH", "")])}
     since = time.time() - 1
     handle = runner.spawn(task_id, out_dir, wrapped, env)
-    if runtime == "codex" and not resume:
+    if not confirm_started(runner, handle):
+        raise RuntimeError(f"{runtime} exited during startup (runner handle {handle})")
+    if runtime == "codex" and not session_id:
         session_id = find_codex_session(out_dir, since)
     return handle, session_id

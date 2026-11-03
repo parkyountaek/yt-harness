@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath
 from ytlib import core  # noqa: E402
 
 ALLOWED = ("running", "waiting-human", "done", "failed")
-EXTRA = ("question", "reason", "staleSince")
+EXTRA = ("question", "reason", "staleSince", "staleFrom")
 
 
 def fail(msg):
@@ -49,19 +49,28 @@ def main(argv):
     task_dir = os.environ.get("YT_TASK_DIR")
     if not task_dir:
         return fail("YT_TASK_DIR is not set; run inside a session started by yt-spawn")
-    status = core.read_status(task_dir)
-    if status is None:
-        return fail(f"no status.json in {task_dir}/out")
-    if status.get("state") in core.FINAL:
-        return fail(f"task already {status['state']}; final states cannot change")
-    if state == "done" and not os.path.isfile(core.result_path(task_dir)):
-        return fail("write out/result.md before reporting done")
 
-    for key in EXTRA:
-        status.pop(key, None)
-    status.update(opts)
-    status["state"] = state
-    core.write_status(task_dir, status)
+    class Refused(Exception):
+        pass
+
+    def change(status):
+        if not status:
+            raise Refused(f"no status.json in {task_dir}/out")
+        if status.get("state") in core.FINAL:
+            raise Refused(f"task already {status['state']}; final states cannot change")
+        if state == "done" and not os.path.isfile(core.result_path(task_dir)):
+            raise Refused("write out/result.md before reporting done")
+        for key in EXTRA:
+            status.pop(key, None)
+        status.update(opts)
+        status["state"] = state
+
+    try:
+        core.update_status(task_dir, change)
+    except Refused as e:
+        return fail(str(e))
+    except TimeoutError as e:
+        return fail(str(e))
     print(f"yt-status: {state}")
     return 0
 

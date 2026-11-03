@@ -77,6 +77,24 @@ def claude_project_dir(cwd):
     return f"{HOME}/.claude/projects/" + re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(cwd))
 
 
+def user_temp_root():
+    """/private/var/folders/<a>/<b>: the per-user temp and cache area shared by every process."""
+    try:
+        t = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    except OSError:
+        return None
+    return os.path.dirname(os.path.realpath(t.rstrip("/"))) if t else None
+
+
+def private_read_roots():
+    """Places outside $HOME that hold other people's or other sessions' data."""
+    roots = ["/Users", "/Volumes", f"/private/tmp/claude-{UID}"]
+    temp = user_temp_root()
+    if temp:
+        roots.append(temp)
+    return roots
+
+
 def tmux_socket_dirs():
     dirs = {f"/private/tmp/tmux-{UID}"}
     if os.environ.get("TMUX_TMPDIR"):
@@ -108,21 +126,25 @@ def sandbox_profile(policy, runtime, extra_read=(), tmp_dir=None, cwd=None):
     if tmp_dir:
         writes.append(("subpath", tmp_dir))
     private = RUNTIME_PRIVATE.get(runtime, [])
-    own = []
+    own, own_read_only = [], []
     if runtime == "claude" and cwd:
         # The session's own transcript folder and Claude's per-cwd temp folder for the Bash tool.
         # The rest of /private/tmp/claude-<uid> (other sessions' temp files) stays unwritable.
         encoded = re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(cwd))
         own = [("subpath", claude_project_dir(cwd)), ("subpath", f"/private/tmp/claude-{UID}/{encoded}")]
+        # Interactive Claude opens the temp root itself at startup. Only the directory entry is
+        # readable (other sessions' folder names); their contents stay denied.
+        own_read_only = [("literal", f"/private/tmp/claude-{UID}")]
     sockets = [("subpath", d) for d in tmux_socket_dirs()]
     lines = [
         "(version 1)",
         "(allow default)",
         # reads
         f'(deny file-read-data (subpath "{HOME}"))',
+        _rule("deny", "file-read-data", [("subpath", r) for r in private_read_roots()]),
         _rule("allow", "file-read-data", reads),
         _rule("deny", "file-read-data", private),
-        _rule("allow", "file-read-data", own),
+        _rule("allow", "file-read-data", own + own_read_only),
         # writes
         "(deny file-write*)",
         _rule("allow", "file-write*", writes),

@@ -7,13 +7,14 @@ Usage:
 
 Task folder: ~/yt-work/<task-id>/
   in/        inputs prepared by the human (read-only to the session)
-  out/       session working directory: result.md, status.json (writable)
+  out/       session working directory: result.md, status.json (writable); must start empty
+  tmp/       per-task temp dir (TMPDIR)
   TASK.md    work order generated here; identical for every runtime
 
 The brief (goal, constraints, done criteria) comes from --brief, or from
 in/BRIEF.md when --brief is omitted.
 
-Exit codes: 0 started, 1 duplicate task id or bad input, 2 concurrency limit reached.
+Exit codes: 0 started, 1 duplicate task id, bad input, or start failure, 2 concurrency limit reached.
 """
 import argparse
 import os
@@ -23,8 +24,8 @@ import uuid
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
 from ytlib import core  # noqa: E402
-from ytlib import platform as ytplatform  # noqa: E402
 from ytlib import launch  # noqa: E402
+from ytlib import platform as ytplatform  # noqa: E402
 from ytlib import runners  # noqa: E402
 
 TASK_TEMPLATE = """# Work order: {task_id}
@@ -53,13 +54,23 @@ coordinator's conversation; everything you need is in this file.
 {brief}
 """
 
+STARTING_TIMEOUT = 120  # seconds; a reservation older than this no longer holds a slot
+
+
 def fail(msg, code=1):
     print(f"yt-spawn: {msg}", file=sys.stderr)
     return code
 
 
+def holds_slot(entry):
+    if entry.get("starting"):
+        started = core.safe_deadline(entry.get("startedAt"))
+        return started is not None and (core.now() - started).total_seconds() < STARTING_TIMEOUT
+    return bool(entry.get("runnerHandle")) and runners.load(entry["runner"]).alive(entry["runnerHandle"])
+
+
 def main(argv):
-    ap = argparse.ArgumentParser(prog="yt-spawn", add_help=True)
+    ap = argparse.ArgumentParser(prog="yt-spawn")
     ap.add_argument("task_id")
     ap.add_argument("harness")
     ap.add_argument("--runtime", choices=("claude", "codex"), default="claude")
@@ -74,76 +85,93 @@ def main(argv):
         return fail(f"runtime {args.runtime} is not installed")
     try:
         harness = core.load_harness(args.harness)
-    except (OSError, ValueError) as e:
-        return fail(f"harness {args.harness}: {e}")
+        ytplatform.load()
+        runners.load(args.runner)
+    except (OSError, ValueError, ImportError, ytplatform.UnsupportedPlatform) as e:
+        return fail(str(e))
     if harness.get("folderKind") != "neutral":
         return fail(f"folderKind {harness.get('folderKind')!r} is not implemented yet (only neutral)")
-    try:
-        ytplatform.load()
-        runner = runners.load(args.runner)
-    except (ytplatform.UnsupportedPlatform, ImportError) as e:
-        return fail(str(e))
+    if args.runtime == "codex":
+        problem = launch.codex_plugin_problem(args.harness, harness.get("version"))
+        if problem:
+            return fail(problem)
 
-    reg = core.load_sessions()
-    sessions = reg["sessions"]
-    existing = sessions.get(args.task_id)
-    if existing and runner.alive(existing["runnerHandle"]):
-        return fail(f"task {args.task_id} is already running")
     task_dir = core.task_dir(args.task_id)
-    status = core.read_status(task_dir)
-    if status and status.get("state") not in core.FINAL + ("stale",) and existing is None:
-        return fail(f"task {args.task_id} has a live status.json; clean it up first")
-    if existing:
-        return fail(f"task {args.task_id} was already started; use `yt resume {args.task_id}` or remove it")
-    live = [s for s in sessions.values() if runners.load(s["runner"]).alive(s["runnerHandle"])]
-    if len(live) >= core.MAX_CONCURRENT:
-        return fail(f"{len(live)} sub-sessions running; the limit is {core.MAX_CONCURRENT}", 2)
-
     in_dir, out_dir = os.path.join(task_dir, "in"), os.path.join(task_dir, "out")
-    os.makedirs(in_dir, exist_ok=True)
-    os.makedirs(out_dir, exist_ok=True)
     brief_path = args.brief or os.path.join(in_dir, "BRIEF.md")
     try:
         with open(brief_path, encoding="utf-8") as f:
             brief = f.read().strip()
     except OSError:
         return fail(f"no brief: pass --brief <file> or create {brief_path}")
-
     start = core.now()
-    deadline = core.parse_deadline(args.deadline or harness.get("deadlineDefault") or "2h", start)
-    with open(os.path.join(task_dir, "TASK.md"), "w", encoding="utf-8") as f:
-        f.write(TASK_TEMPLATE.format(task_id=args.task_id, harness=args.harness,
-                                     version=harness.get("version"), purpose=harness.get("purpose"),
-                                     task_dir=task_dir, deadline=core.iso(deadline), brief=brief))
-
+    try:
+        deadline = core.parse_deadline(args.deadline or harness.get("deadlineDefault") or "2h", start)
+    except ValueError:
+        return fail(f"bad deadline {args.deadline!r}; use 30m, 2h, 1d, or ISO 8601")
     session_id = str(uuid.uuid4()) if args.runtime == "claude" else None
-    core.write_status(task_dir, {
-        "schema": 1, "taskId": args.task_id,
-        "runner": args.runner, "runnerHandle": None,
-        "runtime": args.runtime, "runtimeSessionId": session_id,
-        "harness": args.harness, "harnessVersion": harness.get("version"),
-        "folder": task_dir, "state": "running", "deadline": core.iso(deadline),
-    })
+
+    # Reserve the task id and a slot under the registry lock.
+    with core.locked(core.REGISTRY_LOCK):
+        reg = core.load_sessions()
+        sessions = reg["sessions"]
+        if args.task_id in sessions:
+            return fail(f"task {args.task_id} was already started; use `yt resume` or `yt forget` first")
+        leftovers = [n for n in os.listdir(out_dir) if not n.startswith(".")] if os.path.isdir(out_dir) else []
+        if leftovers:
+            return fail(f"{out_dir} is not empty ({', '.join(sorted(leftovers)[:3])}); "
+                        "move or delete the old results first")
+        busy = sum(holds_slot(e) for e in sessions.values())
+        if busy >= core.MAX_CONCURRENT:
+            return fail(f"{busy} sub-sessions running; the limit is {core.MAX_CONCURRENT}", 2)
+
+        os.makedirs(in_dir, exist_ok=True)
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(task_dir, "TASK.md"), "w", encoding="utf-8") as f:
+            f.write(TASK_TEMPLATE.format(task_id=args.task_id, harness=args.harness,
+                                         version=harness.get("version"), purpose=harness.get("purpose"),
+                                         task_dir=task_dir, deadline=core.iso(deadline), brief=brief))
+        core.write_status(task_dir, {
+            "schema": 1, "taskId": args.task_id,
+            "runner": args.runner, "runnerHandle": None,
+            "runtime": args.runtime, "runtimeSessionId": session_id,
+            "harness": args.harness, "harnessVersion": harness.get("version"),
+            "folder": task_dir, "state": "running", "deadline": core.iso(deadline),
+        })
+        sessions[args.task_id] = {"taskId": args.task_id, "harness": args.harness, "runtime": args.runtime,
+                                  "runner": args.runner, "runnerHandle": None, "runtimeSessionId": session_id,
+                                  "deadline": core.iso(deadline), "startedAt": core.iso(start), "starting": True}
+        core.save_sessions(reg)
+
+    # Start outside the lock: finding the Codex session id can take a while.
+    error = None
+    handle = None
     try:
         handle, session_id = launch.start(args.task_id, args.harness, harness, args.runtime,
                                           args.runner, session_id)
-    except (RuntimeError, NotImplementedError) as e:
-        core.write_status(task_dir, {**core.read_status(task_dir), "state": "failed",
-                                     "reason": f"start failed: {e}"})
-        return fail(str(e))
-    status = core.read_status(task_dir)
-    status.update(runnerHandle=handle, runtimeSessionId=session_id)
-    core.write_status(task_dir, status)
-    sessions[args.task_id] = {"taskId": args.task_id, "harness": args.harness, "runtime": args.runtime,
-                              "runner": args.runner, "runnerHandle": handle,
-                              "runtimeSessionId": session_id, "folder": task_dir,
-                              "startedAt": core.iso(start)}
-    core.save_sessions(reg)
-    core.log_event("spawn", taskId=args.task_id, harness=args.harness,
-                   harnessVersion=harness.get("version"), runtime=args.runtime, runner=args.runner)
+    except Exception as e:  # noqa: BLE001  any start failure must end in a recorded state
+        error = str(e) or e.__class__.__name__
+
+    with core.locked(core.REGISTRY_LOCK):
+        reg = core.load_sessions()
+        entry = reg["sessions"][args.task_id]
+        entry.update(runnerHandle=handle, runtimeSessionId=session_id, starting=False)
+        core.save_sessions(reg)
+
+    def record(status):
+        status.update(runnerHandle=handle, runtimeSessionId=session_id)
+        if error:
+            status.update(state="failed", reason=f"start failed: {error}")
+
+    core.update_status(task_dir, record)
+    core.log_event("spawn", taskId=args.task_id, harness=args.harness, harnessVersion=harness.get("version"),
+                   runtime=args.runtime, runner=args.runner, ok=error is None)
+    if error:
+        return fail(f"start failed: {error}")
     print(f"yt-spawn: started {args.task_id} ({args.harness}, {args.runtime}, {args.runner} handle {handle})")
     if session_id is None:
-        print("yt-spawn: warning: runtime session id not found yet; resume may need it", file=sys.stderr)
+        print("yt-spawn: warning: Codex session id not found yet; `yt resume` will look again",
+              file=sys.stderr)
     return 0
 
 

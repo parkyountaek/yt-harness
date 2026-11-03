@@ -1,17 +1,45 @@
 """Paths, harness.yaml parsing, status files, session registry, events. Standard library only."""
+import contextlib
 import datetime as _dt
 import json
 import os
 import re
 import tempfile
 
-CORE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-REPO = os.path.dirname(CORE)
+try:
+    import fcntl
+except ImportError:  # native Windows
+    fcntl = None
+
 HOME = os.path.expanduser("~")
 LOCAL = os.environ.get("YT_LOCAL", os.path.join(HOME, "yt-local"))
+CONFIG = os.path.join(LOCAL, "config.json")
+
+
+def _repo_root():
+    """The source checkout, not wherever this copy of yt-core happens to run from.
+
+    A runtime may run an installed copy (e.g. Codex's plugin cache), whose siblings are
+    not the harnesses. yt-setup records the checkout in ~/yt-local/config.json.
+    """
+    if os.environ.get("YT_REPO"):
+        return os.path.realpath(os.environ["YT_REPO"])
+    try:
+        with open(CONFIG, encoding="utf-8") as f:
+            repo = json.load(f).get("repo")
+        if repo and os.path.isfile(os.path.join(repo, "yt-core", "deps.json")):
+            return repo
+    except (OSError, ValueError):
+        pass
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
+
+
+REPO = _repo_root()
+CORE = os.path.join(REPO, "yt-core")
 WORK = os.environ.get("YT_WORK", os.path.join(HOME, "yt-work"))
 DATA = os.path.join(LOCAL, "data")
 SESSIONS = os.path.join(DATA, "sessions.json")
+REGISTRY_LOCK = os.path.join(DATA, "registry.lock")
 EVENTS = os.path.join(DATA, "events.jsonl")
 
 STATES = ("running", "waiting-human", "done", "failed", "stale")
@@ -63,6 +91,33 @@ def read_json(path, default=None):
             return json.load(f)
     except FileNotFoundError:
         return default
+
+
+@contextlib.contextmanager
+def locked(path, timeout=10.0):
+    """Exclusive advisory lock held for the duration of the block.
+
+    Raises TimeoutError instead of waiting forever, so a sub-session holding the task
+    lock cannot hang the coordinator.
+    """
+    import time
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        if fcntl:
+            end = time.time() + timeout
+            while True:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.time() > end:
+                        raise TimeoutError(f"lock busy: {path}")
+                    time.sleep(0.05)
+        try:
+            yield
+        finally:
+            if fcntl:
+                fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def log_event(kind, **fields):
@@ -161,6 +216,15 @@ def load_harness(name):
     return data
 
 
+def safe_deadline(text):
+    """Parse a deadline; None when missing or malformed (never raise on bad input)."""
+    try:
+        t = parse_time(text)
+        return t if t.tzinfo else t.astimezone()
+    except (TypeError, ValueError):
+        return None
+
+
 def resolve_policy(harness, task_dir):
     sandbox = harness.get("sandbox") or {}
     sub = lambda paths: [p.replace("<task-folder>", task_dir) for p in (paths or [])]  # noqa: E731
@@ -182,12 +246,30 @@ def result_path(task_dir_):
 
 
 def read_status(task_dir_):
-    return read_json(status_path(task_dir_))
+    """None when missing; {"state": "invalid"} when the file cannot be parsed."""
+    try:
+        data = read_json(status_path(task_dir_))
+    except ValueError:
+        return {"state": "invalid"}
+    return data if data is None or isinstance(data, dict) else {"state": "invalid"}
 
 
 def write_status(task_dir_, status):
     status["updatedAt"] = iso(now())
     write_json_atomic(status_path(task_dir_), status)
+
+
+def update_status(task_dir_, change):
+    """Re-read status.json under the task lock, apply change(status), write it back.
+
+    change returns False to skip writing. Both the session (yt-status) and the
+    coordinator (yt) go through here, so neither overwrites the other's update.
+    """
+    with locked(os.path.join(task_dir_, "out", ".status.lock")):
+        status = read_status(task_dir_) or {}
+        if change(status) is not False:
+            write_status(task_dir_, status)
+        return status
 
 
 # ---------- session registry ----------

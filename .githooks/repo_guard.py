@@ -7,7 +7,7 @@ locally configured blocked terms).
 
 Usage:
   repo_guard.py pre-commit          check staged files
-  repo_guard.py pre-push            check commits about to be pushed (stdin from git)
+  repo_guard.py pre-push <remote>   check commits about to be pushed (stdin from git)
   repo_guard.py scan <rev-range>    check every commit in a range (e.g. for the public switch)
 
 Exit codes: 0 clean, 1 violations found, 2 usage error.
@@ -67,7 +67,7 @@ PATTERNS = [
     ("secret-assignment", re.compile(
         r"(?i)\b[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY)[A-Z0-9_]*"
         r"\s*[:=]\s*['\"]?(?!<|\$\{|\$\(|\{\{)[A-Za-z0-9/+_=.-]{16,}")),
-    ("personal-path", re.compile(r"/(?:Users|home)/(?!<)[A-Za-z0-9._-]+/")),
+    ("personal-path", re.compile(r"/(?:Users|home)/(?!<|Shared\b)[A-Za-z0-9._-]+(?:/|\b)")),
 ]
 
 
@@ -160,17 +160,19 @@ def check_files(files, read_blob, allowlist, blocked_terms):
 
 
 def staged_problems(allowlist, blocked_terms):
-    files = [p for p in git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z").split("\0") if p]
+    files = [p for p in git("diff", "--cached", "--name-only", "--diff-filter=ACMRT", "-z").split("\0") if p]
     return check_files(files, lambda p: git("show", f":{p}", binary=True), allowlist, blocked_terms)
 
 
 def commit_problems(sha, allowlist, blocked_terms):
     problems = []
-    email = git("log", "-1", "--format=%ae", sha).strip()
-    if not NOREPLY.match(email):
-        problems.append(f"{sha[:10]}: author email is not a GitHub noreply address")
-    files = [p for p in git("diff-tree", "--no-commit-id", "--name-only", "-r", "--root",
-                            "--diff-filter=ACMR", "-z", sha).split("\0") if p]
+    author, committer = git("log", "-1", "--format=%ae%n%ce", sha).split("\n")[:2]
+    for role, email in (("author", author), ("committer", committer)):
+        if not NOREPLY.match(email.strip()):
+            problems.append(f"{sha[:10]}: {role} email is not a GitHub noreply address")
+    # -m compares a merge with each parent, so files introduced while resolving a merge are seen.
+    files = sorted({p for p in git("diff-tree", "--no-commit-id", "--name-only", "-r", "--root", "-m",
+                                   "--diff-filter=ACMRT", "-z", sha).split("\0") if p})
     problems.extend(f"{sha[:10]} {p}" for p in
                     check_files(files, lambda p: git("show", f"{sha}:{p}", binary=True),
                                 allowlist, blocked_terms))
@@ -201,18 +203,19 @@ def gitleaks(log_opts=None):
     return ["gitleaks: " + line for line in detail][:40] or ["gitleaks: leak found"]
 
 
-def push_ranges(stdin_lines):
+def push_ranges(stdin_lines, remote):
     ranges = []
     for line in stdin_lines:
         parts = line.split()
         if len(parts) != 4 or parts[1] == ZERO_SHA:
             continue
         local_sha, remote_sha = parts[1], parts[3]
-        ranges.append(f"{local_sha} --not --remotes" if remote_sha == ZERO_SHA else f"{remote_sha}..{local_sha}")
+        ranges.append(f"{local_sha} --not --remotes={remote}" if remote_sha == ZERO_SHA
+                      else f"{remote_sha}..{local_sha}")
     return ranges
 
 
-def push_commits(stdin_lines):
+def push_commits(stdin_lines, remote):
     commits = []
     for line in stdin_lines:
         parts = line.split()
@@ -222,7 +225,7 @@ def push_commits(stdin_lines):
         if local_sha == ZERO_SHA:
             continue  # branch deletion: nothing to scan
         if remote_sha == ZERO_SHA:
-            revs = git("rev-list", local_sha, "--not", "--remotes")
+            revs = git("rev-list", local_sha, "--not", f"--remotes={remote}")
         else:
             revs = git("rev-list", f"{remote_sha}..{local_sha}")
         commits.extend(r for r in revs.split() if r not in commits)
@@ -252,11 +255,12 @@ def main(argv):
     if mode == "pre-commit":
         return report(staged_problems(allowlist, blocked_terms) + gitleaks())
     if mode == "pre-push":
+        remote = argv[2] if len(argv) > 2 else "origin"
         lines = sys.stdin.read().splitlines()
         problems = []
-        for sha in push_commits(lines):
+        for sha in push_commits(lines, remote):
             problems.extend(commit_problems(sha, allowlist, blocked_terms))
-        for rev_range in push_ranges(lines):
+        for rev_range in push_ranges(lines, remote):
             problems.extend(gitleaks(rev_range))
         return report(problems)
     if mode == "scan" and len(argv) == 3:

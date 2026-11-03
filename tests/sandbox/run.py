@@ -36,6 +36,14 @@ def main():
     outside = tempfile.mkdtemp(prefix="yt-sandbox-outside-", dir=HOME)
     with open(os.path.join(outside, "secret.txt"), "w") as f:
         f.write("secret\n")
+    # Probes outside $HOME that the session must not read.
+    probes = {"/Users/Shared": os.path.join(SHARED, f"yt-sandbox-read-{os.getpid()}"),
+              "coordinator temp dir": os.path.join(tempfile.gettempdir(), f"yt-sandbox-read-{os.getpid()}"),
+              "other Claude temp dir": f"/private/tmp/claude-{os.getuid()}/yt-sandbox-read-{os.getpid()}"}
+    for path in probes.values():
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write("private\n")
     host = f"yt-sandbox-host-{os.getpid()}"
     subprocess.run(["tmux", "new-session", "-d", "-s", host, "sleep 120"], check=False)
     marker = os.path.join(SHARED, f"yt-sandbox-escape-{os.getpid()}")
@@ -51,6 +59,8 @@ def main():
         ("allow", "write /dev/null", "echo ok > /dev/null"),
         ("deny", "read outside task", f"cat {outside}/secret.txt"),
         ("deny", "list ~/.ssh", "ls ~/.ssh"),
+        *[("deny", f"read {name}", f"cat {path}") for name, path in probes.items()],
+        ("deny", "list /Volumes", "ls /Volumes"),
         ("deny", "write in/", f": >> {work}/in/input.txt"),
         ("deny", "write outside $HOME (/Users/Shared)", f"touch {marker}"),
         ("deny", "write /private/tmp", f"touch /private/tmp/yt-sandbox-escape-{os.getpid()}"),
@@ -113,7 +123,7 @@ def main():
         shutil.rmtree(own_claude, ignore_errors=True)
         shutil.rmtree(own_tmp, ignore_errors=True)
         shutil.rmtree(f"/private/tmp/claude-{os.getuid()}/yt-other-probe", ignore_errors=True)
-        for p in (marker, f"/private/tmp/yt-sandbox-escape-{os.getpid()}", f"{HOME}/.codex/sessions/.yt-probe",
+        for p in (*probes.values(), marker, f"/private/tmp/yt-sandbox-escape-{os.getpid()}", f"{HOME}/.codex/sessions/.yt-probe",
                   f"{HOME}/.codex/plugins/yt-probe"):
             if os.path.exists(p):
                 os.remove(p)

@@ -176,8 +176,22 @@ def step_local(check_only):
         "blocked-terms.txt": "# One term per line. The repo guard rejects any commit containing them.\n"
                              "# Put company domains, internal host names, and project code names here.\n",
         "active.json": '{ "schema": 1, "projects": {} }\n',
+        "blocked-paths.txt": "# Repo paths that must never be committed (one per line, directories end with /).\n",
     }
     ok = True
+    config_path = os.path.join(LOCAL, "config.json")
+    config = {}
+    if os.path.exists(config_path):
+        with open(config_path, encoding="utf-8") as f:
+            config = json.load(f)
+    if config.get("repo") != REPO:
+        ok = False
+        if not check_only:
+            os.makedirs(LOCAL, exist_ok=True)
+            config["repo"] = REPO
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2)
+                f.write("\n")
     for d in (LOCAL, os.path.join(LOCAL, "data")):
         if not os.path.isdir(d):
             ok = False
@@ -238,11 +252,34 @@ def step_codex(check_only):
         say("failed", "Codex: marketplace add")
         return False
     # Re-adding refreshes the cached copy, so this also applies skeleton updates.
-    if subprocess.call(["codex", "plugin", "add", f"yt-core@{MARKETPLACE}"], stdout=subprocess.DEVNULL) != 0:
-        say("failed", "Codex: plugin add yt-core")
-        return False
-    say("set", "Codex: yt-core installed (cache refreshed)")
+    # yt-core stays enabled; harnesses are installed disabled and enabled per run by yt-spawn.
+    harnesses = sorted(d for d in os.listdir(REPO)
+                       if os.path.isfile(os.path.join(REPO, d, "harness.yaml"))
+                       and os.path.isfile(os.path.join(REPO, d, ".codex-plugin", "plugin.json")))
+    for name in ["yt-core"] + harnesses:
+        if subprocess.call(["codex", "plugin", "add", f"{name}@{MARKETPLACE}"], stdout=subprocess.DEVNULL) != 0:
+            say("failed", f"Codex: plugin add {name}")
+            return False
+    set_codex_enabled({h: False for h in harnesses})
+    say("set", f"Codex: installed yt-core (enabled) and {', '.join(harnesses) or 'no harnesses'} (disabled)")
     return True
+
+
+def set_codex_enabled(states):
+    """Set [plugins."<name>@yt-harness"] enabled = <bool> in ~/.codex/config.toml."""
+    path = os.path.join(HOME, ".codex", "config.toml")
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    for name, enabled in states.items():
+        header = f'[plugins."{name}@{MARKETPLACE}"]'
+        value = "true" if enabled else "false"
+        pattern = re.compile(re.escape(header) + r"\nenabled = (true|false)")
+        if pattern.search(text):
+            text = pattern.sub(f"{header}\nenabled = {value}", text)
+        else:
+            text = text.rstrip("\n") + f"\n\n{header}\nenabled = {value}\n"
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
 
 
 def main(argv):
