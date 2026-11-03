@@ -15,6 +15,7 @@ Standard library only.
 """
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -163,6 +164,41 @@ def commit_problems(sha, allowlist, blocked_terms):
     return problems
 
 
+def gitleaks(log_opts=None):
+    """Run gitleaks as the primary secret scanner. Our own PATTERNS are the fallback.
+
+    Returns a list of problems. A missing gitleaks is a warning, not a rejection;
+    yt-setup installs it and yt-doctor reports when it is absent.
+    """
+    if os.environ.get("YT_GUARD_NO_GITLEAKS") == "1":
+        return []
+    exe = shutil.which("gitleaks")
+    if not exe:
+        print("yt-harness repo guard: warning: gitleaks not installed, using built-in patterns only."
+              " Run yt-core/bin/yt-setup.", file=sys.stderr)
+        return []
+    cmd = [exe, "git", "--no-banner", "--no-color", "--redact", "--verbose", "--exit-code", "1"]
+    cmd += ["--pre-commit", "--staged"] if log_opts is None else [f"--log-opts={log_opts}"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode == 0:
+        return []
+    keep = ("RuleID:", "File:", "Line:", "Commit:", "leaks found", "ERR", "error")
+    detail = [line.strip() for line in (result.stdout + result.stderr).splitlines()
+              if any(k in line for k in keep)]
+    return ["gitleaks: " + line for line in detail][:40] or ["gitleaks: leak found"]
+
+
+def push_ranges(stdin_lines):
+    ranges = []
+    for line in stdin_lines:
+        parts = line.split()
+        if len(parts) != 4 or parts[1] == ZERO_SHA:
+            continue
+        local_sha, remote_sha = parts[1], parts[3]
+        ranges.append(f"{local_sha} --not --remotes" if remote_sha == ZERO_SHA else f"{remote_sha}..{local_sha}")
+    return ranges
+
+
 def push_commits(stdin_lines):
     commits = []
     for line in stdin_lines:
@@ -201,17 +237,20 @@ def main(argv):
     blocked_terms = load_blocked_terms()
     mode = argv[1]
     if mode == "pre-commit":
-        return report(staged_problems(allowlist, blocked_terms))
+        return report(staged_problems(allowlist, blocked_terms) + gitleaks())
     if mode == "pre-push":
+        lines = sys.stdin.read().splitlines()
         problems = []
-        for sha in push_commits(sys.stdin.read().splitlines()):
+        for sha in push_commits(lines):
             problems.extend(commit_problems(sha, allowlist, blocked_terms))
+        for rev_range in push_ranges(lines):
+            problems.extend(gitleaks(rev_range))
         return report(problems)
     if mode == "scan" and len(argv) == 3:
         problems = []
         for sha in git("rev-list", argv[2]).split():
             problems.extend(commit_problems(sha, allowlist, blocked_terms))
-        return report(problems)
+        return report(problems + gitleaks(argv[2]))
     print(__doc__, file=sys.stderr)
     return 2
 

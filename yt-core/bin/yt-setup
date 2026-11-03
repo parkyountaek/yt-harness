@@ -1,0 +1,274 @@
+#!/usr/bin/env python3
+"""Set up yt-harness on this machine. Safe to run again at any time.
+
+Usage: yt-setup [--check | --upgrade]
+
+  --check     report what is missing or outdated; change nothing
+  --upgrade   upgrade every listed tool with the package manager, then run the
+              regression tests in deps.json "afterUpgrade" (e.g. the repo guard
+              tests, so a gitleaks update that changes behaviour is caught)
+
+Steps:
+  1. Install missing tools listed in yt-core/deps.json (per-OS package names)
+  2. Enable the repo git hooks (core.hooksPath = .githooks)
+  3. Create the local layer ~/yt-local/ (never committed)
+  4. Link yt-core for Claude (CLAUDE_CODE_PLUGIN_DIRS) and install it for Codex
+
+Exit codes: 0 ready, 1 something is still missing or failed.
+"""
+import json
+import os
+import re
+import shutil
+import time
+import subprocess
+import sys
+
+CORE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+REPO = os.path.dirname(CORE)
+sys.path.insert(0, os.path.join(CORE, "lib"))
+from ytlib import platform as ytplatform  # noqa: E402
+
+HOME = os.path.expanduser("~")
+LOCAL = os.path.join(HOME, "yt-local")
+MARKETPLACE = "yt-harness"
+
+
+def say(status, msg):
+    print(f"[{status:>7}] {msg}")
+
+
+STAMP = os.path.join(LOCAL, "data", "last-upgrade")
+
+
+def version_tuple(text):
+    m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", text or "")
+    return tuple(int(x or 0) for x in m.groups()) if m else None
+
+
+def probe(dep):
+    """Return (present, version_text)."""
+    try:
+        r = subprocess.run(dep["check"], capture_output=True, text=True)
+    except FileNotFoundError:
+        return False, None
+    return r.returncode == 0, (r.stdout + r.stderr).strip()
+
+
+def present(dep):
+    ok, out = probe(dep)
+    if not ok:
+        return False
+    need = dep.get("minVersion")
+    if need and version_tuple(out) and version_tuple(out) < version_tuple(need):
+        say("old", f"{dep['name']} {version_tuple(out)} is older than required {need}")
+        return False
+    return True
+
+
+def load_deps():
+    with open(os.path.join(CORE, "deps.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def upgrade_due(days):
+    try:
+        return time.time() - os.path.getmtime(STAMP) > days * 86400
+    except OSError:
+        return True
+
+
+def step_upgrade(plat):
+    cfg = load_deps()
+    pm = plat.package_manager()
+    pkgs = [d["install"][pm] for d in cfg["deps"]
+            if pm and pm in d.get("install", {}) and ("os" not in d or plat.OS_ID in d["os"]) and probe(d)[0]]
+    if pm == "brew":
+        # Only upgrade what Homebrew manages (e.g. Apple's git is left alone).
+        managed = set(subprocess.run(["brew", "list", "--formula", "-1"],
+                                     capture_output=True, text=True).stdout.split())
+        skipped = [p for p in pkgs if p not in managed]
+        pkgs = [p for p in pkgs if p in managed]
+        if skipped:
+            say("skip", "not managed by Homebrew: " + ", ".join(skipped))
+        rc = subprocess.call(["brew", "upgrade", *pkgs]) if pkgs else 0
+    elif pm == "apt":
+        sudo = [] if os.geteuid() == 0 else ["sudo"]
+        rc = subprocess.call([*sudo, "apt-get", "install", "-y", "--only-upgrade", *pkgs])
+    elif pm == "dnf":
+        sudo = [] if os.geteuid() == 0 else ["sudo"]
+        rc = subprocess.call([*sudo, "dnf", "upgrade", "-y", *pkgs])
+    else:
+        say("skip", "no package manager; upgrade tools manually")
+        rc = 0
+    if rc != 0:
+        say("failed", "package upgrade")
+        return False
+    ok = True
+    for cmd in cfg.get("afterUpgrade", []):
+        r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
+        last = (r.stdout.strip().splitlines() or [""])[-1]
+        say("ok" if r.returncode == 0 else "failed", f"after-upgrade test {' '.join(cmd)}: {last}")
+        ok = ok and r.returncode == 0
+    if ok:
+        os.makedirs(os.path.dirname(STAMP), exist_ok=True)
+        with open(STAMP, "w", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%dT%H:%M:%S%z") + "\n")
+    else:
+        say("stop", "a tool upgrade changed behaviour; fix before committing (pin the old version if needed)")
+    return ok
+
+
+def step_deps(plat, check_only):
+    cfg = load_deps()
+    deps = cfg["deps"]
+    if upgrade_due(cfg.get("upgradeEveryDays", 7)):
+        say("warn", f"tools not upgraded in {cfg.get('upgradeEveryDays', 7)}+ days: run yt-setup --upgrade")
+    pm = plat.package_manager()
+    missing_required, to_install = [], []
+    for dep in deps:
+        if "os" in dep and plat.OS_ID not in dep["os"]:
+            continue
+        if present(dep):
+            say("ok", dep["name"])
+            continue
+        pkg = dep.get("install", {}).get(pm) if pm else None
+        if pkg:
+            to_install.append((dep, pkg))
+            say("missing", f"{dep['name']} (will install {pkg} with {pm})")
+        else:
+            level = "missing" if dep.get("required") else "warn"
+            say(level, f"{dep['name']}: install manually ({dep.get('purpose', 'no package for this OS')})")
+            if dep.get("required"):
+                missing_required.append(dep["name"])
+    if to_install and not check_only:
+        if plat.install([pkg for _, pkg in to_install]) != 0:
+            return False
+        for dep, _ in to_install:
+            if not present(dep):
+                say("failed", f"{dep['name']} still missing after install")
+                missing_required.append(dep["name"])
+    elif to_install:
+        missing_required.extend(d["name"] for d, _ in to_install)
+    return not missing_required
+
+
+def git(*args):
+    return subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True)
+
+
+def step_hooks(check_only):
+    current = git("config", "--local", "--get", "core.hooksPath").stdout.strip()
+    if current == ".githooks":
+        say("ok", "git hooks enabled")
+        return True
+    if check_only:
+        say("missing", "git hooks (core.hooksPath) not set")
+        return False
+    git("config", "--local", "core.hooksPath", ".githooks")
+    say("set", "git hooks enabled (core.hooksPath = .githooks)")
+    return True
+
+
+def step_local(check_only):
+    files = {
+        "routes.json": '{ "schema": 1, "routes": [] }\n',
+        "blocked-terms.txt": "# One term per line. The repo guard rejects any commit containing them.\n"
+                             "# Put company domains, internal host names, and project code names here.\n",
+        "active.json": '{ "schema": 1, "projects": {} }\n',
+    }
+    ok = True
+    for d in (LOCAL, os.path.join(LOCAL, "data")):
+        if not os.path.isdir(d):
+            ok = False
+            if not check_only:
+                os.makedirs(d, exist_ok=True)
+    for name, content in files.items():
+        path = os.path.join(LOCAL, name)
+        if os.path.exists(path):
+            continue
+        ok = False
+        if not check_only:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+    if ok:
+        say("ok", "local layer ~/yt-local/")
+    else:
+        say("missing" if check_only else "set", "local layer ~/yt-local/")
+    return ok or not check_only
+
+
+def step_claude(check_only):
+    if not shutil.which("claude"):
+        say("skip", "Claude not installed")
+        return True
+    path = os.path.join(HOME, ".claude", "settings.json")
+    data = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            data = json.loads(f.read() or "{}")
+    env = data.setdefault("env", {})
+    dirs = [d for d in env.get("CLAUDE_CODE_PLUGIN_DIRS", "").split(":") if d]
+    if CORE in dirs:
+        say("ok", "Claude: yt-core linked")
+        return True
+    if check_only:
+        say("missing", "Claude: yt-core not linked")
+        return False
+    env["CLAUDE_CODE_PLUGIN_DIRS"] = ":".join(dirs + [CORE])
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    say("set", "Claude: yt-core linked (restart sessions to load)")
+    return True
+
+
+def step_codex(check_only):
+    if not shutil.which("codex"):
+        say("skip", "Codex not installed")
+        return True
+    markets = subprocess.run(["codex", "plugin", "marketplace", "list"], capture_output=True, text=True).stdout
+    has_market = any(line.split()[:1] == [MARKETPLACE] for line in markets.splitlines())
+    if check_only:
+        say("ok" if has_market else "missing", f"Codex: marketplace {MARKETPLACE}")
+        return has_market
+    if not has_market and subprocess.call(["codex", "plugin", "marketplace", "add", REPO],
+                                          stdout=subprocess.DEVNULL) != 0:
+        say("failed", "Codex: marketplace add")
+        return False
+    # Re-adding refreshes the cached copy, so this also applies skeleton updates.
+    if subprocess.call(["codex", "plugin", "add", f"yt-core@{MARKETPLACE}"], stdout=subprocess.DEVNULL) != 0:
+        say("failed", "Codex: plugin add yt-core")
+        return False
+    say("set", "Codex: yt-core installed (cache refreshed)")
+    return True
+
+
+def main(argv):
+    check_only = "--check" in argv
+    if any(a in ("-h", "--help") for a in argv):
+        print(__doc__)
+        return 0
+    try:
+        plat = ytplatform.load()
+    except ytplatform.UnsupportedPlatform as e:
+        say("stop", str(e))
+        return 1
+    say("info", f"platform: {plat.OS_ID} (package manager: {plat.package_manager() or 'none'})")
+    if "--upgrade" in argv:
+        return 0 if step_upgrade(plat) else 1
+    results = [
+        step_deps(plat, check_only),
+        step_hooks(check_only),
+        step_local(check_only),
+        step_claude(check_only),
+        step_codex(check_only),
+    ]
+    ready = all(results)
+    say("ready" if ready else "todo", "yt-harness setup " + ("complete" if ready else "incomplete"))
+    return 0 if ready else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

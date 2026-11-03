@@ -1,0 +1,133 @@
+{
+  "schema": 1,
+  "comment": "Tools yt-harness needs. yt-setup installs missing ones; yt-doctor checks them. Package names per package manager.",
+  "deps": [
+    {
+      "name": "python3",
+      "check": [
+        "python3",
+        "--version"
+      ],
+      "required": true,
+      "install": {
+        "brew": "python",
+        "apt": "python3",
+        "dnf": "python3"
+      },
+      "minVersion": "3.9"
+    },
+    {
+      "name": "git",
+      "check": [
+        "git",
+        "--version"
+      ],
+      "required": true,
+      "install": {
+        "brew": "git",
+        "apt": "git",
+        "dnf": "git"
+      }
+    },
+    {
+      "name": "gh",
+      "check": [
+        "gh",
+        "--version"
+      ],
+      "required": true,
+      "install": {
+        "brew": "gh",
+        "apt": "gh",
+        "dnf": "gh"
+      }
+    },
+    {
+      "name": "tmux",
+      "check": [
+        "tmux",
+        "-V"
+      ],
+      "required": true,
+      "purpose": "first runner adapter",
+      "install": {
+        "brew": "tmux",
+        "apt": "tmux",
+        "dnf": "tmux"
+      },
+      "minVersion": "3.0"
+    },
+    {
+      "name": "gitleaks",
+      "check": [
+        "gitleaks",
+        "version"
+      ],
+      "required": true,
+      "purpose": "primary secret scanner for the repo guard",
+      "install": {
+        "brew": "gitleaks",
+        "apt": "gitleaks",
+        "dnf": "gitleaks"
+      },
+      "minVersion": "8.19.0",
+      "comment": "8.19.0 introduced the 'gitleaks git' subcommand the repo guard uses"
+    },
+    {
+      "name": "sandbox-exec",
+      "check": [
+        "/usr/bin/which",
+        "sandbox-exec"
+      ],
+      "required": true,
+      "os": [
+        "macos"
+      ],
+      "purpose": "shared sandbox backend on macOS (built into the OS)",
+      "install": {}
+    },
+    {
+      "name": "bwrap",
+      "check": [
+        "bwrap",
+        "--version"
+      ],
+      "required": true,
+      "os": [
+        "linux",
+        "wsl"
+      ],
+      "purpose": "shared sandbox backend on Linux and WSL2 (backend not implemented yet)",
+      "install": {
+        "apt": "bubblewrap",
+        "dnf": "bubblewrap"
+      }
+    },
+    {
+      "name": "claude",
+      "check": [
+        "claude",
+        "--version"
+      ],
+      "required": false,
+      "purpose": "runtime; install with the official installer",
+      "install": {}
+    },
+    {
+      "name": "codex",
+      "check": [
+        "codex",
+        "--version"
+      ],
+      "required": false,
+      "purpose": "runtime; install with the official installer",
+      "install": {}
+    }
+  ],
+  "upgradeEveryDays": 7,
+  "afterUpgrade": [
+    [
+      "tests/repo-guard/run.sh"
+    ]
+  ]
+}
