@@ -5,7 +5,7 @@ description: Decide how to handle a task (do it directly, use a subagent, or spa
 
 # Coordinator
 
-Placeholder. The full procedure is written once the milestone passes (see `docs/plan.md` section 5).
+Placeholder. The full procedure is written once the milestone passes.
 
 Decision ladder, stop at the first match:
 1. Do it directly: short, read-only work.

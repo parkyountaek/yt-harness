@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Supervise sub-sessions.
+
+Usage:
+  yt status                 list tasks: id, harness and version, runtime, state, alive, deadline
+  yt attach <task-id>       hand this terminal to the sub-session (type directly)
+  yt stop <task-id>         stop the sub-session; the task can be resumed later
+  yt resume <task-id>       restart a stopped sub-session from its runtime session id
+  yt forget <task-id>       drop a finished or stopped task from the session list
+
+`yt status` marks a task stale when its deadline passed and it is not done or failed,
+and marks it failed when it reported done without out/result.md.
+Exit codes: 0 ok, 1 error.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
+from ytlib import core  # noqa: E402
+from ytlib import launch  # noqa: E402
+from ytlib import runners  # noqa: E402
+
+
+def fail(msg):
+    print(f"yt: {msg}", file=sys.stderr)
+    return 1
+
+
+def judge(status):
+    """Apply the coordinator-side transitions. Returns the (possibly updated) status."""
+    state = status.get("state")
+    task_dir = status["folder"]
+    if state == "done" and not os.path.isfile(core.result_path(task_dir)):
+        status.update(state="failed", reason="reported done but out/result.md is missing")
+        core.write_status(task_dir, status)
+        core.log_event("state", taskId=status["taskId"], state="failed", by="yt")
+    elif state not in core.FINAL + ("stale",) and status.get("deadline") \
+            and core.now() > core.parse_time(status["deadline"]):
+        status.update(state="stale", staleSince=core.iso(core.now()), staleFrom=state)
+        core.write_status(task_dir, status)
+        core.log_event("state", taskId=status["taskId"], state="stale", by="yt")
+    return status
+
+
+def cmd_status():
+    reg = core.load_sessions()
+    rows = []
+    for task_id, s in sorted(reg["sessions"].items()):
+        status = core.read_status(s["folder"]) or {"state": "missing", "folder": s["folder"], "taskId": task_id}
+        if status["state"] != "missing":
+            status = judge(status)
+        alive = runners.load(s["runner"]).alive(s["runnerHandle"])
+        note = status.get("question") or status.get("reason") or ""
+        rows.append((task_id, f"{s['harness']} {status.get('harnessVersion', '')}".strip(), s["runtime"],
+                     status["state"], "yes" if alive else "no", status.get("deadline", ""), note))
+    if not rows:
+        print("no tasks")
+        return 0
+    head = ("TASK", "HARNESS", "RUNTIME", "STATE", "ALIVE", "DEADLINE", "NOTE")
+    widths = [max(len(str(r[i])) for r in rows + [head]) for i in range(len(head))]
+    for r in [head] + rows:
+        print("  ".join(str(v).ljust(w) for v, w in zip(r, widths)).rstrip())
+    if any(r[3] == "stale" for r in rows):
+        print("\nStale tasks passed their deadline. Decide: `yt attach <id>` to check, or `yt stop <id>`.")
+    return 0
+
+
+def session(task_id):
+    s = core.load_sessions()["sessions"].get(task_id)
+    if not s:
+        raise KeyError(task_id)
+    return s, runners.load(s["runner"])
+
+
+def cmd_attach(task_id):
+    s, runner = session(task_id)
+    if not runner.alive(s["runnerHandle"]):
+        return fail(f"{task_id} is not running; use `yt resume {task_id}`")
+    core.log_event("attach", taskId=task_id)
+    return runner.attach(s["runnerHandle"])
+
+
+def cmd_stop(task_id):
+    s, runner = session(task_id)
+    rc = runner.stop(s["runnerHandle"])
+    core.log_event("stop", taskId=task_id, ok=rc == 0)
+    print(f"yt: {task_id} stopped" if rc == 0 else f"yt: {task_id} did not stop cleanly")
+    return rc
+
+
+def cmd_resume(task_id):
+    s, runner = session(task_id)
+    if runner.alive(s["runnerHandle"]):
+        return fail(f"{task_id} is still running; stop it first")
+    sid = s.get("runtimeSessionId")
+    if not sid:
+        return fail(f"{task_id} has no runtime session id; cannot resume")
+    status = core.read_status(s["folder"]) or {}
+    if status.get("state") in core.FINAL:
+        return fail(f"{task_id} is already {status['state']}")
+    harness = core.load_harness(s["harness"])
+    try:
+        handle, _ = launch.start(task_id, s["harness"], harness, s["runtime"], s["runner"], sid, resume=True)
+    except (RuntimeError, NotImplementedError) as e:
+        return fail(f"resume failed: {e}")
+    if status.get("state") == "stale":
+        status["state"] = status.pop("staleFrom", "running")
+        status.pop("staleSince", None)
+    status["runnerHandle"] = handle
+    core.write_status(s["folder"], status)
+    reg = core.load_sessions()
+    reg["sessions"][task_id]["runnerHandle"] = handle
+    core.save_sessions(reg)
+    core.log_event("resume", taskId=task_id, runtime=s["runtime"])
+    print(f"yt: {task_id} resumed ({s['runtime']}, handle {handle})")
+    return 0
+
+
+def cmd_forget(task_id):
+    s, runner = session(task_id)
+    if runner.alive(s["runnerHandle"]):
+        return fail(f"{task_id} is still running; stop it first")
+    reg = core.load_sessions()
+    reg["sessions"].pop(task_id, None)
+    core.save_sessions(reg)
+    core.log_event("forget", taskId=task_id)
+    print(f"yt: {task_id} removed from the session list (task folder kept)")
+    return 0
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return 0 if argv else 1
+    cmd, rest = argv[0], argv[1:]
+    try:
+        if cmd == "status" and not rest:
+            return cmd_status()
+        if cmd in ("attach", "stop", "resume", "forget") and len(rest) == 1:
+            return {"attach": cmd_attach, "stop": cmd_stop, "resume": cmd_resume, "forget": cmd_forget}[cmd](rest[0])
+    except KeyError as e:
+        return fail(f"unknown task {e.args[0]}")
+    print(__doc__, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

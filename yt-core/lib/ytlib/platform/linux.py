@@ -1,7 +1,7 @@
 """Linux and WSL2 backend: apt or dnf for packages, bubblewrap for the shared sandbox.
 
 Not yet verified on a Linux machine. The sandbox backend is a stub until the
-equivalence tests run on Linux (see docs/plan.md).
+equivalence tests run on Linux.
 """
 import os
 import shutil

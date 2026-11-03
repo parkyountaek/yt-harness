@@ -36,6 +36,8 @@ commit_file() {  # commit_file <path> <content>
 
 export YT_BLOCKED_TERMS="$TMP/blocked-terms.txt"
 printf 'example-corp.internal\n' > "$YT_BLOCKED_TERMS"
+export YT_BLOCKED_PATHS="$TMP/blocked-paths.txt"
+printf 'docs/local-notes.md\n' > "$YT_BLOCKED_PATHS"
 
 setup; expect ok     "allowed path"            commit_file docs/note.md "hello"
 setup; expect reject "path outside allowlist"  commit_file notes.txt "hello"
@@ -43,6 +45,7 @@ setup; expect reject "github token"            commit_file docs/t.md "token gh""
 setup; expect reject "private key"             commit_file docs/k.md "-----BEGIN RSA PRIV""ATE KEY-----"
 setup; expect reject "personal absolute path"  commit_file docs/p.md "see /Us""ers/alice/work"
 setup; expect ok     "placeholder path"        commit_file docs/p.md "see /Users/<user>/yt-work"
+setup; expect reject "local blocked path"      commit_file docs/local-notes.md "notes"
 setup; expect reject "local blocked term"      commit_file docs/b.md "host api.example-corp.internal"
 
 # Fake secrets are assembled at run time so this file never matches the guard.

@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Report the sub-session state. The only way a sub-session writes status.json.
+
+Usage:
+  yt-status running
+  yt-status waiting-human --question "<one sentence>"
+  yt-status done                      (out/result.md must already exist)
+  yt-status failed --reason "<one sentence>"
+
+The task folder comes from $YT_TASK_DIR (set by yt-spawn).
+Exit codes: 0 recorded, 1 invalid state or arguments, or done without result.md.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
+from ytlib import core  # noqa: E402
+
+ALLOWED = ("running", "waiting-human", "done", "failed")
+EXTRA = ("question", "reason", "staleSince")
+
+
+def fail(msg):
+    print(f"yt-status: {msg}", file=sys.stderr)
+    return 1
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return 0 if argv else 1
+    state, rest = argv[0], argv[1:]
+    if state not in ALLOWED:
+        return fail(f"invalid state {state!r}; use one of {', '.join(ALLOWED)}")
+    opts = {}
+    while rest:
+        flag = rest.pop(0)
+        if flag in ("--question", "--reason") and rest:
+            opts[flag[2:]] = rest.pop(0)
+        else:
+            return fail(f"unexpected argument {flag!r}")
+    if state == "waiting-human" and "question" not in opts:
+        return fail("waiting-human needs --question")
+    if state == "failed" and "reason" not in opts:
+        return fail("failed needs --reason")
+    if state in ("running", "done") and opts:
+        return fail(f"{state} takes no options")
+
+    task_dir = os.environ.get("YT_TASK_DIR")
+    if not task_dir:
+        return fail("YT_TASK_DIR is not set; run inside a session started by yt-spawn")
+    status = core.read_status(task_dir)
+    if status is None:
+        return fail(f"no status.json in {task_dir}/out")
+    if status.get("state") in core.FINAL:
+        return fail(f"task already {status['state']}; final states cannot change")
+    if state == "done" and not os.path.isfile(core.result_path(task_dir)):
+        return fail("write out/result.md before reporting done")
+
+    for key in EXTRA:
+        status.pop(key, None)
+    status.update(opts)
+    status["state"] = state
+    core.write_status(task_dir, status)
+    print(f"yt-status: {state}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

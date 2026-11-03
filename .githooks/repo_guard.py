@@ -104,6 +104,15 @@ def load_blocked_terms():
     return terms
 
 
+def load_blocked_paths():
+    """Machine-local paths that must never be committed, even if inside an allowed directory."""
+    path = os.path.expanduser(os.environ.get("YT_BLOCKED_PATHS", "~/yt-local/blocked-paths.txt"))
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        return [line.strip() for line in f if line.strip() and not line.startswith("#")]
+
+
 def path_allowed(path, allowlist):
     for entry in allowlist:
         if entry.endswith("/"):
@@ -135,7 +144,11 @@ def check_content(path, data, blocked_terms):
 
 def check_files(files, read_blob, allowlist, blocked_terms):
     problems = []
+    blocked_paths = load_blocked_paths()
     for path in files:
+        if path_allowed(path, blocked_paths):
+            problems.append(f"{path}: blocked by the local blocked-paths list (never committed)")
+            continue
         if any(SENSITIVE_NAMES.match(part) for part in path.split("/")):
             problems.append(f"{path}: sensitive file name (never committed)")
             continue
