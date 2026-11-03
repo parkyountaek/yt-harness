@@ -17,21 +17,45 @@ def package_manager():
     return None
 
 
-def install(packages):
-    if not packages:
-        return 0
+def _sudo():
+    return [] if os.geteuid() == 0 else ["sudo"]
+
+
+def _manager_or_none(packages):
     pm = package_manager()
     if pm is None:
         print("No supported package manager (apt or dnf) found. Install manually: " + " ".join(packages))
+    return pm
+
+
+def install(packages):
+    if not packages:
+        return 0
+    pm = _manager_or_none(packages)
+    if pm is None:
         return 1
-    sudo = [] if os.geteuid() == 0 else ["sudo"]
     if pm == "apt":
-        subprocess.call([*sudo, "apt-get", "update"])
-        return subprocess.call([*sudo, "apt-get", "install", "-y", *packages])
-    return subprocess.call([*sudo, "dnf", "install", "-y", *packages])
+        subprocess.call([*_sudo(), "apt-get", "update"])
+        return subprocess.call([*_sudo(), "apt-get", "install", "-y", *packages])
+    return subprocess.call([*_sudo(), "dnf", "install", "-y", *packages])
 
 
-def sandbox_argv(policy, runtime, cmd, profile_dir=None, extra_read=()):
-    raise NotImplementedError(
-        "The bubblewrap sandbox backend is not implemented yet. "
-        "Sub-sessions cannot be spawned on Linux or WSL2 until it is.")
+def upgrade(packages):
+    if not packages:
+        return 0
+    pm = _manager_or_none(packages)
+    if pm is None:
+        return 1
+    if pm == "apt":
+        subprocess.call([*_sudo(), "apt-get", "update"])
+        return subprocess.call([*_sudo(), "apt-get", "install", "-y", "--only-upgrade", *packages])
+    return subprocess.call([*_sudo(), "dnf", "upgrade", "-y", *packages])
+
+
+def sandbox_problem():
+    return ("The bubblewrap sandbox backend is not implemented yet. "
+            "Sub-sessions cannot be spawned on Linux or WSL2 until it is.")
+
+
+def sandbox_argv(policy, runtime, cmd, profile_dir=None, extra_read=(), tmp_dir=None, cwd=None):
+    raise NotImplementedError(sandbox_problem())

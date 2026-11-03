@@ -62,6 +62,23 @@ def install(packages):
     return subprocess.call(["brew", "install", *packages])
 
 
+def upgrade(packages):
+    """Upgrade only what Homebrew manages (Apple's git and python are left alone)."""
+    if not packages or not package_manager():
+        return 0
+    managed = set(subprocess.run(["brew", "list", "--formula", "-1"],
+                                 capture_output=True, text=True).stdout.split())
+    skipped = [p for p in packages if p not in managed]
+    if skipped:
+        print("not managed by Homebrew, skipped: " + ", ".join(skipped))
+    packages = [p for p in packages if p in managed]
+    return subprocess.call(["brew", "upgrade", *packages]) if packages else 0
+
+
+def sandbox_problem():
+    return None if shutil.which("sandbox-exec") else "sandbox-exec is missing from this macOS install"
+
+
 def _filter(kind, value):
     if kind == "regex":
         return f'(regex #"{value}")'

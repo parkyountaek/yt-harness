@@ -46,17 +46,21 @@ def version_tuple(text):
     return tuple(int(x or 0) for x in m.groups()) if m else None
 
 
-def probe(dep):
-    """Return (present, version_text)."""
+def applies(dep, plat):
+    return "os" not in dep or plat.OS_ID in dep["os"]
+
+
+def probe(dep, plat):
+    """Return (present, version_text). "checkByOs" overrides "check" (e.g. python vs python3)."""
     try:
-        r = subprocess.run(dep["check"], capture_output=True, text=True)
+        r = subprocess.run(dep.get("checkByOs", {}).get(plat.OS_ID, dep["check"]), capture_output=True, text=True)
     except FileNotFoundError:
         return False, None
     return r.returncode == 0, (r.stdout + r.stderr).strip()
 
 
-def present(dep):
-    ok, out = probe(dep)
+def present(dep, plat):
+    ok, out = probe(dep, plat)
     if not ok:
         return False
     need = dep.get("minVersion")
@@ -82,25 +86,10 @@ def step_upgrade(plat):
     cfg = load_deps()
     pm = plat.package_manager()
     pkgs = [d["install"][pm] for d in cfg["deps"]
-            if pm and pm in d.get("install", {}) and ("os" not in d or plat.OS_ID in d["os"]) and probe(d)[0]]
-    if pm == "brew":
-        # Only upgrade what Homebrew manages (e.g. Apple's git is left alone).
-        managed = set(subprocess.run(["brew", "list", "--formula", "-1"],
-                                     capture_output=True, text=True).stdout.split())
-        skipped = [p for p in pkgs if p not in managed]
-        pkgs = [p for p in pkgs if p in managed]
-        if skipped:
-            say("skip", "not managed by Homebrew: " + ", ".join(skipped))
-        rc = subprocess.call(["brew", "upgrade", *pkgs]) if pkgs else 0
-    elif pm == "apt":
-        sudo = [] if os.geteuid() == 0 else ["sudo"]
-        rc = subprocess.call([*sudo, "apt-get", "install", "-y", "--only-upgrade", *pkgs])
-    elif pm == "dnf":
-        sudo = [] if os.geteuid() == 0 else ["sudo"]
-        rc = subprocess.call([*sudo, "dnf", "upgrade", "-y", *pkgs])
-    else:
+            if pm and pm in d.get("install", {}) and applies(d, plat) and probe(d, plat)[0]]
+    if not pm:
         say("skip", "no package manager; upgrade tools manually")
-        rc = 0
+    rc = plat.upgrade(pkgs)
     if rc != 0:
         say("failed", "package upgrade")
         return False
@@ -127,9 +116,9 @@ def step_deps(plat, check_only):
     pm = plat.package_manager()
     missing_required, to_install = [], []
     for dep in deps:
-        if "os" in dep and plat.OS_ID not in dep["os"]:
+        if not applies(dep, plat):
             continue
-        if present(dep):
+        if present(dep, plat):
             say("ok", dep["name"])
             continue
         pkg = dep.get("install", {}).get(pm) if pm else None
@@ -145,7 +134,7 @@ def step_deps(plat, check_only):
         if plat.install([pkg for _, pkg in to_install]) != 0:
             return False
         for dep, _ in to_install:
-            if not present(dep):
+            if not present(dep, plat):
                 say("failed", f"{dep['name']} still missing after install")
                 missing_required.append(dep["name"])
     elif to_install:
@@ -222,14 +211,14 @@ def step_claude(check_only):
         with open(path, encoding="utf-8") as f:
             data = json.loads(f.read() or "{}")
     env = data.setdefault("env", {})
-    dirs = [d for d in env.get("CLAUDE_CODE_PLUGIN_DIRS", "").split(":") if d]
+    dirs = [d for d in env.get("CLAUDE_CODE_PLUGIN_DIRS", "").split(os.pathsep) if d]
     if CORE in dirs:
         say("ok", "Claude: yt-core linked")
         return True
     if check_only:
         say("missing", "Claude: yt-core not linked")
         return False
-    env["CLAUDE_CODE_PLUGIN_DIRS"] = ":".join(dirs + [CORE])
+    env["CLAUDE_CODE_PLUGIN_DIRS"] = os.pathsep.join(dirs + [CORE])
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
@@ -293,6 +282,8 @@ def main(argv):
         say("stop", str(e))
         return 1
     say("info", f"platform: {plat.OS_ID} (package manager: {plat.package_manager() or 'none'})")
+    if plat.sandbox_problem():
+        say("warn", "sub-sessions cannot run here: " + plat.sandbox_problem())
     if "--upgrade" in argv:
         return 0 if step_upgrade(plat) else 1
     results = [

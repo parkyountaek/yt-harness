@@ -85,10 +85,12 @@ def main(argv):
         return fail(f"runtime {args.runtime} is not installed")
     try:
         harness = core.load_harness(args.harness)
-        ytplatform.load()
+        plat = ytplatform.load()
         runners.load(args.runner)
     except (OSError, ValueError, ImportError, ytplatform.UnsupportedPlatform) as e:
         return fail(str(e))
+    if plat.sandbox_problem():
+        return fail(plat.sandbox_problem())
     if harness.get("folderKind") != "neutral":
         return fail(f"folderKind {harness.get('folderKind')!r} is not implemented yet (only neutral)")
     if args.runtime == "codex":

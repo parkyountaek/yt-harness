@@ -1,3 +1,4 @@
 #!/bin/sh
 # git passes: <remote name> <remote url>; ref lines arrive on stdin.
-exec python3 "$(git rev-parse --show-toplevel)/.githooks/repo_guard.py" pre-push "$@"
+PY=$(command -v python3 || command -v python)  # Windows ships python, not python3
+exec "$PY" "$(git rev-parse --show-toplevel)/.githooks/repo_guard.py" pre-push "$@"

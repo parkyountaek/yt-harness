@@ -1,2 +1,3 @@
 #!/bin/sh
-exec python3 "$(git rev-parse --show-toplevel)/.githooks/repo_guard.py" pre-commit
+PY=$(command -v python3 || command -v python)  # Windows ships python, not python3
+exec "$PY" "$(git rev-parse --show-toplevel)/.githooks/repo_guard.py" pre-commit

@@ -12,9 +12,17 @@
       "install": {
         "brew": "python",
         "apt": "python3",
-        "dnf": "python3"
+        "dnf": "python3",
+        "winget": "Python.Python.3.12",
+        "scoop": "python"
       },
-      "minVersion": "3.9"
+      "minVersion": "3.9",
+      "checkByOs": {
+        "windows": [
+          "python",
+          "--version"
+        ]
+      }
     },
     {
       "name": "git",
@@ -26,7 +34,9 @@
       "install": {
         "brew": "git",
         "apt": "git",
-        "dnf": "git"
+        "dnf": "git",
+        "winget": "Git.Git",
+        "scoop": "git"
       }
     },
     {
@@ -39,7 +49,9 @@
       "install": {
         "brew": "gh",
         "apt": "gh",
-        "dnf": "gh"
+        "dnf": "gh",
+        "winget": "GitHub.cli",
+        "scoop": "gh"
       }
     },
     {
@@ -55,7 +67,13 @@
         "apt": "tmux",
         "dnf": "tmux"
       },
-      "minVersion": "3.0"
+      "minVersion": "3.0",
+      "os": [
+        "macos",
+        "linux",
+        "wsl"
+      ],
+      "comment": "No native Windows build; on Windows the harness runs inside WSL2"
     },
     {
       "name": "gitleaks",
@@ -68,7 +86,9 @@
       "install": {
         "brew": "gitleaks",
         "apt": "gitleaks",
-        "dnf": "gitleaks"
+        "dnf": "gitleaks",
+        "winget": "Gitleaks.Gitleaks",
+        "scoop": "gitleaks"
       },
       "minVersion": "8.19.0",
       "comment": "8.19.0 introduced the 'gitleaks git' subcommand the repo guard uses"
@@ -127,6 +147,7 @@
   "upgradeEveryDays": 7,
   "afterUpgrade": [
     [
+      "sh",
       "tests/repo-guard/run.sh"
     ]
   ]
