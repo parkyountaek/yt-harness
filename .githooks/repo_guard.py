@@ -21,12 +21,51 @@ import sys
 ZERO_SHA = "0" * 40
 NOREPLY = re.compile(r"^[0-9]+\+[A-Za-z0-9-]+@users\.noreply\.github\.com$")
 
+# Sensitive file names: rejected even inside an allowed directory.
+# Matched against the last path component. Templates such as ".env.example" are allowed.
+SENSITIVE_NAMES = re.compile(
+    r"^(?:"
+    r"\.env(?:\.(?!example$|sample$|template$)[^/]+)?"   # .env, .env.local, .env.production
+    r"|\.envrc|\.netrc|_netrc|\.npmrc|\.pypirc|\.pgpass|\.git-credentials"
+    r"|id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?"              # SSH private keys
+    r"|credentials(?:\.json|\.csv)?|service[-_]account.*\.json|client_secret.*\.json"
+    r"|.*\.(?:pem|key|p12|pfx|jks|keystore|ppk|kdbx|tfstate|tfvars)"
+    r"|.*\.tfstate\.backup|terraform\.tfvars\.json|kubeconfig|\.kube"
+    r")$",
+    re.IGNORECASE,
+)
+
 # Built-in content patterns. Each is assembled so this file never matches itself.
 PATTERNS = [
+    # Version-control hosts and package registries
     ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b")),
-    ("aws-access-key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
-    ("api-secret-key", re.compile(r"\bsk-(?:ant-)?[A-Za-z0-9_-]{20,}\b")),
-    ("private-key", re.compile("-----BEGIN [A-Z ]*" + "PRIVATE KEY-----")),
+    ("github-fine-grained-token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{50,}\b")),
+    ("gitlab-token", re.compile(r"\bgl(?:pat|dt|rt|ptt|cbt)-[A-Za-z0-9_-]{20,}\b")),
+    ("npm-token", re.compile(r"\bnpm_[A-Za-z0-9]{36}\b")),
+    ("pypi-token", re.compile(r"\bpypi-AgE[A-Za-z0-9_-]{50,}")),
+    # Cloud providers
+    ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[0-9A-Z]{16}\b")),
+    ("aws-secret-key", re.compile(r"(?i)aws_?secret_?access_?key\s*[:=]\s*['\"]?[A-Za-z0-9/+]{40}\b")),
+    ("google-api-key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+    ("gcp-service-account", re.compile(r"\"type\"\s*:\s*\"service_account\"")),
+    ("azure-storage-key", re.compile(r"(?i)AccountKey=[A-Za-z0-9+/=]{40,}")),
+    # AI and SaaS APIs
+    ("api-secret-key", re.compile(r"\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}\b")),
+    ("huggingface-token", re.compile(r"\bhf_[A-Za-z0-9]{30,}\b")),
+    ("slack-token", re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}")),
+    ("slack-webhook", re.compile(r"https://hooks\.slack\.com/services/[A-Za-z0-9/]{20,}")),
+    ("discord-webhook", re.compile(r"https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\d+/[A-Za-z0-9_-]{20,}")),
+    ("telegram-bot-token", re.compile(r"\b\d{8,10}:AA[A-Za-z0-9_-]{33}\b")),
+    ("stripe-key", re.compile(r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}\b")),
+    ("sendgrid-key", re.compile(r"\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b")),
+    ("twilio-key", re.compile(r"\bSK[0-9a-f]{32}\b")),
+    ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")),
+    # Generic shapes
+    ("private-key", re.compile("-----BEGIN [A-Z ]*" + "PRIVATE KEY( BLOCK)?-----")),
+    ("url-with-password", re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s/:@<>]+:[^\s/@<>]{3,}@[^\s/]+")),
+    ("secret-assignment", re.compile(
+        r"(?i)\b[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY)[A-Z0-9_]*"
+        r"\s*[:=]\s*['\"]?(?!<|\$\{|\$\(|\{\{)[A-Za-z0-9/+_=.-]{16,}")),
     ("personal-path", re.compile(r"/(?:Users|home)/(?!<)[A-Za-z0-9._-]+/")),
 ]
 
@@ -96,6 +135,9 @@ def check_content(path, data, blocked_terms):
 def check_files(files, read_blob, allowlist, blocked_terms):
     problems = []
     for path in files:
+        if any(SENSITIVE_NAMES.match(part) for part in path.split("/")):
+            problems.append(f"{path}: sensitive file name (never committed)")
+            continue
         if not path_allowed(path, allowlist):
             problems.append(f"{path}: not in allowlist.txt")
             continue

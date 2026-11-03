@@ -45,6 +45,53 @@ setup; expect reject "personal absolute path"  commit_file docs/p.md "see /Us""e
 setup; expect ok     "placeholder path"        commit_file docs/p.md "see /Users/<user>/yt-work"
 setup; expect reject "local blocked term"      commit_file docs/b.md "host api.example-corp.internal"
 
+# Fake secrets are assembled at run time so this file never matches the guard.
+E=''   # empty string used to split fake secrets inside the heredoc
+rep() { printf "%${2}s" "" | tr ' ' "$1"; }   # rep <char> <count>
+A20=$(rep a 20); A36=$(rep a 36); A40=$(rep A 40); H32=$(rep f 32)
+while IFS='|' read -r name value; do
+  [ -z "$name" ] && continue
+  setup; expect reject "secret: $name" commit_file docs/s.md "$value"
+done <<EOF
+github fine-grained|github${E}_pat_$(rep a 60)
+gitlab token|gl${E}pat-$A20
+npm token|np${E}m_$A36
+pypi token|py${E}pi-AgE$(rep a 60)
+aws session key|AS${E}IA$(rep A 16)
+aws secret key|aws_secret_access_key = $A40
+google api key|AI${E}za$(rep a 35)
+gcp service account|{"ty${E}pe": "service_account"}
+azure storage key|Account${E}Key=$A40
+openai project key|s${E}k-proj-$A20$A20
+anthropic key|s${E}k-ant-$A20$A20
+huggingface token|h${E}f_$A36
+slack token|xo${E}xb-1234567890-$A20
+slack webhook|https://hooks.sl${E}ack.com/services/T000/B000/$A20
+discord webhook|https://discord.com/api/web${E}hooks/123456/$A20
+telegram bot token|123456789:A${E}A$(rep a 33)
+stripe key|s${E}k_live_$A20
+sendgrid key|S${E}G.$(rep a 22).$(rep a 43)
+twilio key|S${E}K$H32
+jwt|ey${E}J$(rep a 12).ey${E}J$(rep a 12).$(rep a 12)
+openssh private key|-----BEGIN OPENSSH PRIV${E}ATE KEY-----
+url with password|postgres:${E}//admin:hunter2pass@db.local:5432/app
+secret assignment|DB_PASS${E}WORD=$(rep x 20)
+EOF
+
+# Sensitive file names are rejected even inside an allowed directory.
+for f in docs/.env docs/.env.local docs/.env.production docs/id_rsa docs/id_ed25519 docs/server.pem \
+         docs/tls.key docs/cert.p12 docs/credentials.json docs/service-account-prod.json \
+         docs/terraform.tfstate docs/prod.tfvars docs/.npmrc docs/.netrc docs/.git-credentials docs/.kube/config; do
+  setup; expect reject "sensitive name: $f" commit_file "$f" "x"
+done
+
+# Placeholders and templates must stay allowed.
+setup; expect ok "template .env.example"       commit_file docs/.env.example "API_KEY=<your-key>"
+setup; expect ok "placeholder assignment"      commit_file docs/c.md 'API_TOKEN=${API_TOKEN}'
+setup; expect ok "short assignment value"      commit_file docs/c.md "PASSWORD=changeme"
+setup; expect ok "url without password"        commit_file docs/c.md "https://user@github.com/org/repo"
+setup; expect ok "git sha is not a key"        commit_file docs/c.md "commit $(rep f 40)"
+
 setup; expect ok     "push clean branch"       git push -q origin main
 setup
 git config core.hooksPath /dev/null
