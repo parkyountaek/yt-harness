@@ -25,6 +25,7 @@ import uuid
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
 from ytlib import core  # noqa: E402
 from ytlib import launch  # noqa: E402
+from ytlib import parity  # noqa: E402
 from ytlib import platform as ytplatform  # noqa: E402
 from ytlib import runners  # noqa: E402
 
@@ -48,6 +49,9 @@ coordinator's conversation; everything you need is in this file.
 4. Only after result.md is written, run `yt-status done`.
 5. If you cannot finish, run `yt-status failed --reason "<one sentence>"`.
 6. Do not try to read or write outside the task folder. The sandbox blocks it; do not work around it.
+7. Your user-level instructions still apply. Where they conflict with this work order,
+   this work order wins inside this task.
+8. Write result.md in the language of the brief unless the brief says otherwise.
 
 ## Brief
 
@@ -91,6 +95,10 @@ def main(argv):
         return fail(str(e))
     if plat.sandbox_problem():
         return fail(plat.sandbox_problem())
+    drift = parity.problems()
+    if drift:
+        return fail("Claude and Codex global setup differ, so their sub-sessions would not match:\n  "
+                    + "\n  ".join(drift) + "\nFix the files, then retry (yt-setup --check shows this too).")
     if harness.get("folderKind") != "neutral":
         return fail(f"folderKind {harness.get('folderKind')!r} is not implemented yet (only neutral)")
     if args.runtime == "codex":

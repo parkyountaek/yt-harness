@@ -21,6 +21,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
 from ytlib import core  # noqa: E402
 from ytlib import launch  # noqa: E402
+from ytlib import parity  # noqa: E402
 from ytlib import runners  # noqa: E402
 
 
@@ -106,6 +107,9 @@ def cmd_stop(task_id):
 
 def cmd_resume(task_id, deadline_arg=None):
     task_dir = core.task_dir(task_id)
+    drift = parity.problems()
+    if drift:
+        return fail("Claude and Codex global setup differ: " + "; ".join(drift))
     with core.locked(core.REGISTRY_LOCK):
         reg = core.load_sessions()
         e = reg["sessions"].get(task_id)

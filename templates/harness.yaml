@@ -2,6 +2,7 @@ schema: 1
 id: <harness-id>
 version: 0.1.0
 purpose: <one line>
+description: "<one line for the marketplace listing>"
 tools: []
 folderKind: neutral        # repo | worktree | vault | neutral
 permissions: read-only     # read-only | write

@@ -12,7 +12,7 @@ except ImportError:  # native Windows
     fcntl = None
 
 HOME = os.path.expanduser("~")
-LOCAL = os.environ.get("YT_LOCAL", os.path.join(HOME, "yt-local"))
+LOCAL = os.path.expanduser(os.environ.get("YT_LOCAL", os.path.join(HOME, "yt-local")))
 CONFIG = os.path.join(LOCAL, "config.json")
 
 
@@ -36,7 +36,7 @@ def _repo_root():
 
 REPO = _repo_root()
 CORE = os.path.join(REPO, "yt-core")
-WORK = os.environ.get("YT_WORK", os.path.join(HOME, "yt-work"))
+WORK = os.path.expanduser(os.environ.get("YT_WORK", os.path.join(HOME, "yt-work")))
 DATA = os.path.join(LOCAL, "data")
 SESSIONS = os.path.join(DATA, "sessions.json")
 REGISTRY_LOCK = os.path.join(DATA, "registry.lock")

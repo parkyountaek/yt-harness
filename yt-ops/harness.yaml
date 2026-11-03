@@ -2,6 +2,7 @@ schema: 1
 id: yt-ops
 version: 0.1.0
 purpose: Read-only investigation
+description: "First example harness: read-only investigation"
 tools: [git]
 folderKind: neutral
 permissions: read-only

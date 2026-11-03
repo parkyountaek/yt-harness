@@ -11,8 +11,10 @@ Usage: yt-setup [--check | --upgrade]
 Steps:
   1. Install missing tools listed in yt-core/deps.json (per-OS package names)
   2. Enable the repo git hooks (core.hooksPath = .githooks)
-  3. Create the local layer ~/yt-local/ (never committed)
+  3. Create the local layer ~/yt-local/ ($YT_LOCAL overrides; never committed)
   4. Link yt-core for Claude (CLAUDE_CODE_PLUGIN_DIRS) and install it for Codex
+  5. Check that Claude and Codex global setup match (instructions, hooks, plugins);
+     report only, never edits ~/.claude or ~/.codex instruction files
 
 Exit codes: 0 ready, 1 something is still missing or failed.
 """
@@ -27,10 +29,11 @@ import sys
 CORE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 REPO = os.path.dirname(CORE)
 sys.path.insert(0, os.path.join(CORE, "lib"))
+from ytlib import parity  # noqa: E402
 from ytlib import platform as ytplatform  # noqa: E402
 
 HOME = os.path.expanduser("~")
-LOCAL = os.path.join(HOME, "yt-local")
+LOCAL = os.path.expanduser(os.environ.get("YT_LOCAL", os.path.join(HOME, "yt-local")))
 MARKETPLACE = "yt-harness"
 
 
@@ -195,9 +198,9 @@ def step_local(check_only):
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
     if ok:
-        say("ok", "local layer ~/yt-local/")
+        say("ok", f"local layer {LOCAL}")
     else:
-        say("missing" if check_only else "set", "local layer ~/yt-local/")
+        say("missing" if check_only else "set", f"local layer {LOCAL}")
     return ok or not check_only
 
 
@@ -271,6 +274,17 @@ def set_codex_enabled(states):
         f.write(text)
 
 
+def step_parity():
+    drift = parity.problems()
+    if not drift:
+        say("ok", "Claude and Codex global setup match (instructions, hooks, plugins)")
+        return True
+    for p in drift:
+        say("drift", p)
+    say("todo", "fix the files above by hand; yt-spawn refuses to start until they match")
+    return False
+
+
 def main(argv):
     check_only = "--check" in argv
     if any(a in ("-h", "--help") for a in argv):
@@ -292,6 +306,7 @@ def main(argv):
         step_local(check_only),
         step_claude(check_only),
         step_codex(check_only),
+        step_parity(),
     ]
     ready = all(results)
     say("ready" if ready else "todo", "yt-harness setup " + ("complete" if ready else "incomplete"))

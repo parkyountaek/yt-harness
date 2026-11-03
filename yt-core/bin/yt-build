@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Generate runtime-specific files from the neutral sources.
+
+Usage: yt-build [--check]
+
+  --check   change nothing; exit 1 if a generated file is missing or out of date
+            (the pre-commit hook runs this)
+
+Sources -> generated files:
+  yt-core/plugin.yaml, <harness>/harness.yaml
+      -> <plugin>/.claude-plugin/plugin.json, <plugin>/.codex-plugin/plugin.json
+  every plugin
+      -> .claude-plugin/marketplace.json, .agents/plugins/marketplace.json
+
+A harness is a top-level folder with a harness.yaml. Never edit generated files by hand.
+Exit codes: 0 up to date (or written), 1 out of date (--check) or bad source.
+"""
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
+from ytlib import core  # noqa: E402
+
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+MARKETPLACE = "yt-harness"
+OWNER = "parkyountaek"
+CATEGORY = "Productivity"
+REQUIRED = ("id", "version", "purpose", "description")
+
+
+def load_sources():
+    """[(folder, source dict)] with yt-core first, then harnesses by name."""
+    found = [("yt-core", os.path.join(REPO, "yt-core", "plugin.yaml"))]
+    for name in sorted(os.listdir(REPO)):
+        path = os.path.join(REPO, name, "harness.yaml")
+        if name != "templates" and os.path.isfile(path):
+            found.append((name, path))
+    sources = []
+    for folder, path in found:
+        with open(path, encoding="utf-8") as f:
+            data = core.parse_harness_yaml(f.read())
+        missing = [k for k in REQUIRED if not data.get(k)]
+        if missing:
+            raise ValueError(f"{os.path.relpath(path, REPO)}: missing {', '.join(missing)}")
+        if data["id"] != folder:
+            raise ValueError(f"{os.path.relpath(path, REPO)}: id {data['id']!r} does not match folder {folder!r}")
+        if not os.path.isdir(os.path.join(REPO, folder, "skills")):
+            raise ValueError(f"{folder}: no skills/ folder")
+        sources.append((folder, data))
+    return sources
+
+
+def outputs(sources):
+    files = {}
+    for folder, s in sources:
+        files[f"{folder}/.claude-plugin/plugin.json"] = {
+            "name": s["id"], "version": str(s["version"]), "description": s["description"]}
+        files[f"{folder}/.codex-plugin/plugin.json"] = {
+            "name": s["id"], "version": str(s["version"]), "description": s["description"],
+            "skills": "./skills/",
+            "interface": {"displayName": s["id"], "shortDescription": s["purpose"],
+                          "category": CATEGORY, "capabilities": ["Instructions"]}}
+    files[".claude-plugin/marketplace.json"] = {
+        "name": MARKETPLACE, "owner": {"name": OWNER},
+        "plugins": [{"name": s["id"], "description": s["description"], "source": f"./{folder}"}
+                    for folder, s in sources]}
+    files[".agents/plugins/marketplace.json"] = {
+        "name": MARKETPLACE, "interface": {"displayName": MARKETPLACE},
+        "plugins": [{"name": s["id"], "source": {"source": "local", "path": f"./{folder}"},
+                     "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+                     "category": CATEGORY} for folder, s in sources]}
+    return {path: json.dumps(data, indent=2, ensure_ascii=False) + "\n" for path, data in files.items()}
+
+
+def main(argv):
+    if any(a in ("-h", "--help") for a in argv):
+        print(__doc__)
+        return 0
+    check = "--check" in argv
+    try:
+        files = outputs(load_sources())
+    except (OSError, ValueError) as e:
+        print(f"yt-build: {e}", file=sys.stderr)
+        return 1
+    stale = []
+    for rel, text in files.items():
+        path = os.path.join(REPO, rel)
+        try:
+            with open(path, encoding="utf-8") as f:
+                current = f.read()
+        except OSError:
+            current = None
+        if current == text:
+            continue
+        stale.append(rel)
+        if not check:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+    if check and stale:
+        print("yt-build: out of date (run yt-core/bin/yt-build): " + ", ".join(stale), file=sys.stderr)
+        return 1
+    print(f"yt-build: {'wrote ' + ', '.join(stale) if stale and not check else 'up to date'}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

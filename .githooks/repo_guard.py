@@ -3,7 +3,8 @@
 
 Rejects commits and pushes that contain paths outside allowlist.txt or
 content that must never reach GitHub (secrets, personal absolute paths,
-locally configured blocked terms).
+locally configured blocked terms). Pre-commit also rejects runtime files
+that are out of date with their neutral sources (yt-build --check).
 
 Usage:
   repo_guard.py pre-commit          check staged files
@@ -90,9 +91,12 @@ def load_allowlist(root):
     return entries
 
 
+LOCAL = os.path.expanduser(os.environ.get("YT_LOCAL", "~/yt-local"))
+
+
 def load_blocked_terms():
     """Company-specific terms live outside the repo, in the local layer."""
-    path = os.path.expanduser(os.environ.get("YT_BLOCKED_TERMS", "~/yt-local/blocked-terms.txt"))
+    path = os.path.expanduser(os.environ.get("YT_BLOCKED_TERMS", os.path.join(LOCAL, "blocked-terms.txt")))
     if not os.path.exists(path):
         return []
     terms = []
@@ -106,7 +110,7 @@ def load_blocked_terms():
 
 def load_blocked_paths():
     """Machine-local paths that must never be committed, even if inside an allowed directory."""
-    path = os.path.expanduser(os.environ.get("YT_BLOCKED_PATHS", "~/yt-local/blocked-paths.txt"))
+    path = os.path.expanduser(os.environ.get("YT_BLOCKED_PATHS", os.path.join(LOCAL, "blocked-paths.txt")))
     if not os.path.exists(path):
         return []
     with open(path, encoding="utf-8") as f:
@@ -232,6 +236,15 @@ def push_commits(stdin_lines, remote):
     return commits
 
 
+def generated_problems(root):
+    """Runtime-specific files must match what yt-build generates from the neutral sources."""
+    build = os.path.join(root, "yt-core", "bin", "yt-build")
+    if not os.path.isfile(build):
+        return []
+    r = subprocess.run([sys.executable, build, "--check"], capture_output=True, text=True)
+    return [] if r.returncode == 0 else [(r.stderr or r.stdout).strip()]
+
+
 def report(problems):
     if not problems:
         return 0
@@ -253,7 +266,7 @@ def main(argv):
     blocked_terms = load_blocked_terms()
     mode = argv[1]
     if mode == "pre-commit":
-        return report(staged_problems(allowlist, blocked_terms) + gitleaks())
+        return report(staged_problems(allowlist, blocked_terms) + generated_problems(root) + gitleaks())
     if mode == "pre-push":
         remote = argv[2] if len(argv) > 2 else "origin"
         lines = sys.stdin.read().splitlines()

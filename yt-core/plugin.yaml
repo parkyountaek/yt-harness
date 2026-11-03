@@ -1,0 +1,6 @@
+# Neutral source for the yt-core plugin manifests. Edit this, then run yt-build.
+schema: 1
+id: yt-core
+version: 0.1.0
+purpose: Spawn and supervise harnessed sub-sessions
+description: "yt-harness core: coordinator, spawn, status, runner adapters"
