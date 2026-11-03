@@ -1,0 +1,7 @@
+{
+  "name": "yt-core",
+  "version": "0.1.0",
+  "description": "yt-harness core: coordinator, spawn, status, runner adapters",
+  "skills": "./skills/",
+  "interface": { "displayName": "yt-core", "shortDescription": "Spawn and supervise harnessed sub-sessions", "category": "Productivity", "capabilities": ["Instructions"] }
+}

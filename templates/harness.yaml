@@ -1,0 +1,14 @@
+schema: 1
+id: <harness-id>
+version: 0.1.0
+purpose: <one line>
+tools: []
+folderKind: neutral        # repo | worktree | vault | neutral
+permissions: read-only     # read-only | write
+sandbox:                   # enforced for every runtime by the shared sandbox-exec profile
+  read: ["<task-folder>"]  # everything else under $HOME is denied
+  write: ["<task-folder>/out/"]
+deadlineDefault: 2h
+evals: []
+runtimes: []               # list only runtimes that passed the equivalence tests
+experimental: true

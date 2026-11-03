@@ -1,0 +1,14 @@
+schema: 1
+id: yt-ops
+version: 0.1.0
+purpose: Read-only investigation
+tools: [git]
+folderKind: neutral
+permissions: read-only
+sandbox:
+  read: ["<task-folder>"]
+  write: ["<task-folder>/out/"]
+deadlineDefault: 2h
+evals: []
+runtimes: []               # filled in after the milestone equivalence tests pass
+experimental: false

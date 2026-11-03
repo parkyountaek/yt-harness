@@ -1,0 +1,32 @@
+{
+  "name": "yt-harness",
+  "interface": {
+    "displayName": "yt-harness"
+  },
+  "plugins": [
+    {
+      "name": "yt-core",
+      "source": {
+        "source": "local",
+        "path": "./yt-core"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "yt-ops",
+      "source": {
+        "source": "local",
+        "path": "./yt-ops"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

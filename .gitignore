@@ -1,0 +1,9 @@
+# Runtime state never leaves the machine.
+status.json
+status.json.tmp
+events.jsonl
+metrics.jsonl
+session-settings.json
+*.sb.generated
+.DS_Store
+__pycache__/

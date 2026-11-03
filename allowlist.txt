@@ -1,0 +1,19 @@
+# Paths allowed in the GitHub repo, relative to the repo root.
+# One path per line. Directories end with "/". Lines starting with "#" are comments.
+.agents/
+.claude-plugin/
+.githooks/
+.gitignore
+AGENTS.md
+allowlist.txt
+adapters/
+docs/
+procedures/
+style/
+templates/
+tests/
+yt-core/
+yt-ops/
+yt-buildkit/
+yt-quality/
+yt-writing/

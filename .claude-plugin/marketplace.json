@@ -1,0 +1,18 @@
+{
+  "name": "yt-harness",
+  "owner": {
+    "name": "parkyountaek"
+  },
+  "plugins": [
+    {
+      "name": "yt-core",
+      "description": "yt-harness core: coordinator, spawn, status, runner adapters",
+      "source": "./yt-core"
+    },
+    {
+      "name": "yt-ops",
+      "description": "First example harness: read-only investigation",
+      "source": "./yt-ops"
+    }
+  ]
+}

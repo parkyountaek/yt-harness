@@ -1,0 +1,7 @@
+{
+  "name": "yt-ops",
+  "version": "0.1.0",
+  "description": "First example harness: read-only investigation",
+  "skills": "./skills/",
+  "interface": { "displayName": "yt-ops", "shortDescription": "Read-only investigation harness", "category": "Productivity", "capabilities": ["Instructions"] }
+}
