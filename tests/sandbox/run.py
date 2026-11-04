@@ -57,7 +57,8 @@ def main():
     peer_sock = f"/private/tmp/cc-socks/yt-sandbox-peer-{os.getpid()}.sock"
     own_sock = os.path.join(task_tmp, "cc-socks", "own.sock")
     listeners = []
-    for path in (peer_sock, own_sock):
+    service_sock = os.path.join(outside, "svc.sock")   # stands in for docker.sock, ssh-agent, app daemons
+    for path in (peer_sock, own_sock, service_sock):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         srv = socket.socket(socket.AF_UNIX)
         srv.bind(path)
@@ -70,6 +71,9 @@ def main():
     common = [
         ("deny", "connect to another session's messaging socket", connect + peer_sock),
         ("allow", "connect to own messaging socket (task tmp)", connect + own_sock),
+        ("deny", "connect to a local service socket (docker, ssh-agent, app daemons)", connect + service_sock),
+        ("allow", "DNS lookup through mDNSResponder", connect.replace(
+            "socket.socket(socket.AF_UNIX).connect(sys.argv[1])", "socket.getaddrinfo(sys.argv[1], 443)") + "example.com"),
         ("deny", "list the session registry ~/.claude/sessions", f"ls {HOME}/.claude/sessions"),
         ("allow", "system python3 runs without xcrun cache errors",
          f"cd {work}/out && /usr/bin/python3 -I -c 'print(1)' 2>&1 | (! grep -q xcrun_db)"),

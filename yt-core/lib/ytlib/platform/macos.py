@@ -47,6 +47,11 @@ RUNTIME_PRIVATE = {
 PEER_REGISTRY = [("subpath", f"{HOME}/.claude/sessions")]
 PEER_SOCKET_REGEX = r"/cc-socks(/|$)"
 
+# Unix sockets are local services that act outside the sandbox (Docker's API, ssh-agent,
+# terminal-app daemons, editor CLIs, other sessions). All are closed except the system
+# sockets below and the task's own tmp dir.
+SYSTEM_SOCKETS = ["/private/var/run/mDNSResponder", "/private/var/run/syslog"]
+
 # Programs that ask a process outside the sandbox to run something for us.
 ESCAPE_EXECUTABLES = ["/usr/bin/open", "/usr/bin/osascript", "/bin/launchctl", "/usr/bin/crontab",
                       "/usr/bin/at", "/usr/bin/batch", "/usr/bin/screen", "/usr/bin/ssh"]
@@ -188,7 +193,9 @@ def sandbox_profile(policy, runtime, extra_read=(), tmp_dir=None, cwd=None):
         # channels that run commands outside the sandbox
         _rule("deny", "file-read* file-write*", sockets),
         _rule("deny", "file-read* file-write*", PEER_REGISTRY + [("regex", PEER_SOCKET_REGEX)]),
-        f'(deny network-outbound (remote unix-socket (path-regex #"{PEER_SOCKET_REGEX}")))',
+        "(deny network-outbound (remote unix-socket))",
+        "(allow network-outbound " + " ".join(f'(remote unix-socket (path-literal "{p}"))'
+                                              for p in SYSTEM_SOCKETS) + ")",
         *([_rule("allow", "file-read* file-write*", [("subpath", tmp_dir)]),
            f'(allow network-outbound (remote unix-socket (subpath "{tmp_dir}")))'] if tmp_dir else []),
         "(deny network-outbound " + " ".join(f'(remote unix-socket (subpath "{d}"))'

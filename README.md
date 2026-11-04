@@ -150,6 +150,10 @@ Both runtimes run under one generated `sandbox-exec` profile
   runtime needs. Other sessions' transcripts and history cannot be read.
 - **Escape channels** are blocked: tmux sockets, AppleEvents, and running
   `open`, `osascript`, `launchctl`, `crontab`, `at`, `screen`, `ssh`, `tmux`.
+- **Local services** are unreachable: unix-socket connections are denied except
+  DNS (`mDNSResponder`), `syslog`, and the task `tmp/`. That closes Docker's API,
+  ssh-agent, terminal-app daemons, and editor CLIs, each of which could act
+  outside the sandbox.
 - **Peer sessions** are unreachable: the Claude session registry
   (`~/.claude/sessions/`) and other sessions' messaging sockets (`cc-socks/`)
   are closed, so a sub-session cannot list or message the coordinator or any
@@ -164,8 +168,9 @@ Outside the profile, every sub-session also starts:
   `--strict-mcp-config`, `ENABLE_CLAUDEAI_MCP_SERVERS=false`; Codex:
   `features.apps=false` and every configured server disabled).
 
-Known gap: network egress is open (the runtimes need their model APIs), so the
-built-in web tools and `curl` can still reach the internet.
+Known gap: TCP egress is open (the runtimes need their model APIs), so the
+built-in web tools and `curl` can still reach the internet and TCP services on
+localhost.
 
 ## Global setup on each runtime
 
