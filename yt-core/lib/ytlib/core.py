@@ -242,9 +242,26 @@ def safe_deadline(text):
         return None
 
 
-def resolve_policy(harness, task_dir):
+def vaults():
+    """Named knowledge folders for folderKind: vault harnesses (~/yt-local/config.json "vaults")."""
+    return {k: os.path.realpath(os.path.expanduser(v))
+            for k, v in ((read_json(CONFIG, {}) or {}).get("vaults") or {}).items()}
+
+
+def resolve_policy(harness, task_dir, vault=None):
+    """Sandbox paths with <task-folder> and <vault> filled in."""
     sandbox = harness.get("sandbox") or {}
-    sub = lambda paths: [p.replace("<task-folder>", task_dir) for p in (paths or [])]  # noqa: E731
+
+    def sub(paths):
+        out = []
+        for p in paths or []:
+            if "<vault>" in p:
+                if not vault:
+                    raise ValueError("this harness needs a vault (yt-spawn --vault <name>)")
+                p = p.replace("<vault>", vault)
+            out.append(p.replace("<task-folder>", task_dir))
+        return out
+
     return {"read": sub(sandbox.get("read")), "write": sub(sandbox.get("write"))}
 
 

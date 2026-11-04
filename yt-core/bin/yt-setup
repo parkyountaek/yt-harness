@@ -275,7 +275,7 @@ def set_codex_enabled(states):
         f.write(text)
 
 
-COMMANDS = ("yt", "yt-spawn", "yt-setup", "yt-build", "yt-doctor", "yt-update")
+COMMANDS = ("yt", "yt-spawn", "yt-setup", "yt-build", "yt-doctor", "yt-update", "yt-mask")
 
 
 def step_commands(check_only):

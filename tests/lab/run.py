@@ -13,7 +13,7 @@ LOCAL = tempfile.mkdtemp(prefix="ytlab")
 os.environ.update(YT_LOCAL=LOCAL, YT_WORK=os.path.join(LOCAL, "work"))
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "yt-core", "lib"))
-from ytlib import core, lab, metrics  # noqa: E402
+from ytlib import core, lab, metrics, panel  # noqa: E402
 
 results = {"pass": 0, "fail": 0}
 
@@ -71,6 +71,23 @@ def main():
     text = json.dumps(card)
     check("card: input kinds by extension", card["inputKinds"] == {".csv": 1, ".txt": 1})
     check("card: no file names or content", "acme" not in text and "secret" not in text and "notes" not in text)
+    # panel: what needs the human, and retirement hints
+    for tid, state in (("p-wait", "waiting-human"), ("p-done", "done"), ("p-old", "done")):
+        os.makedirs(os.path.join(core.task_dir(tid), "out"), exist_ok=True)
+        core.write_status(core.task_dir(tid), {"state": state, "question": "Which file?"})
+    core.save_sessions({"schema": 1, "sessions": {t: {"harness": "yt-ops", "runtime": "claude", "runner": "tmux",
+                                                       "runnerHandle": None, "deadline": "2099-01-01T00:00:00+00:00"}
+                                                   for t in ("p-wait", "p-done", "p-old")}})
+    core.log_event("collect", taskId="p-old")
+    needs, _ = panel.needs_and_running()
+    text = "\n".join(needs)
+    check("panel: a question needs the human", "p-wait: question" in text)
+    check("panel: an uncollected result needs the human", "p-done: done, not collected" in text)
+    check("panel: a collected result does not", "p-old" not in text)
+    with open(core.EVENTS, "a") as f:
+        f.write(json.dumps({"at": "2026-01-01T00:00:00+00:00", "event": "spawn", "ok": True, "harness": "yt-ops"}) + "\n")
+    _, retire = panel.harness_rows()
+    check("panel: a harness unused for 60 days is a retire hint", any(r.startswith("yt-ops:") for r in retire))
     print(f"passed={results['pass']} failed={results['fail']}")
     return 0 if results["fail"] == 0 else 1
 

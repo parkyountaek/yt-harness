@@ -297,6 +297,38 @@ def test_scenarios():
 
 # ---------- generated manifests ----------
 
+def test_vault():
+    """folderKind: vault — the vault comes from the local config and reaches the sandbox."""
+    vault = os.path.join(core.HOME, f"yt-contract-vault-{os.getpid()}")
+    os.makedirs(vault, exist_ok=True)
+    try:
+        core.write_json_atomic(core.CONFIG, {"vaults": {"v": vault}})
+        brief = os.path.join(ROOT, "brief.md")
+        for rt in RUNTIMES:
+            stop_all()
+            run = lambda tid, *extra: quiet(spawn_mod.main, [tid, "yt-wiki", "--runtime", rt, "--runner", "fake",  # noqa: E731
+                                                             "--deadline", FIXED_DEADLINE, "--brief", brief, *extra])[0]
+            check(f"{rt}: vault harness refuses to start without --vault", run(f"nv-{rt}", "--experimental") == 1)
+            check(f"{rt}: experimental harness refuses without --experimental", run(f"ne-{rt}", "--vault", "v") == 1)
+            check(f"{rt}: unknown vault refused", run(f"uv-{rt}", "--experimental", "--vault", "nope") == 1)
+            check(f"{rt}: vault harness starts", run(f"va-{rt}", "--experimental", "--vault", "v") == 0)
+            e = entry(f"va-{rt}")
+            check(f"{rt}: vault path kept in the session list", e.get("vaultPath") == os.path.realpath(vault))
+            argv = last_session(f"va-{rt}")["argv"]
+            gen = os.path.join(core.task_dir(f"va-{rt}"), f"sandbox-{rt}." + ("bwrap" if PLATFORM == "linux" else "sb")
+                               + ".generated")
+            text = open(gen, encoding="utf-8").read()
+            check(f"{rt}: sandbox writes the vault", os.path.realpath(vault) in text, gen)
+            with open(os.path.join(core.task_dir(f"va-{rt}"), "TASK.md"), encoding="utf-8") as fh:
+                check(f"{rt}: work order names the vault", f"Vault (read and write): {os.path.realpath(vault)}" in fh.read())
+            stop_all()
+            check(f"{rt}: resume keeps the vault", yt("resume", f"va-{rt}") == 0
+                  and os.path.realpath(vault) in open(gen, encoding="utf-8").read())
+            del argv
+    finally:
+        shutil.rmtree(vault, ignore_errors=True)
+
+
 def test_build():
     r = subprocess.run([sys.executable, os.path.join(BIN, "yt-build"), "--check"], capture_output=True, text=True)
     check("yt-build --check: runtime manifests match neutral sources", r.returncode == 0, r.stderr.strip())
@@ -391,6 +423,7 @@ def main(argv):
         return 0
     try:
         test_scenarios()
+        test_vault()
         test_build()
         test_parity()
         if "--live" in argv:

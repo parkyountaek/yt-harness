@@ -11,8 +11,8 @@ goes there, so it may leave the machine after a human check.
 | Run evaluation | `yt eval`, `evals.jsonl` | ready |
 | Self-improvement | `yt improve` | report ready; proposals manual |
 | Experiments | `experimental: true`, `yt-spawn --experimental`, `yt card` | ready |
-| Knowledge store (`yt-wiki`) | contract below | not started |
-| Control panel and retirement | contract below | not started |
+| Knowledge store (`yt-wiki`) | `folderKind: vault`, `yt-wiki` harness, `yt-mask` | experimental |
+| Control panel and retirement | `yt panel`, `panel` skill | ready |
 
 ## Harness generation
 
@@ -64,16 +64,28 @@ eval criteria) are never changed by it.
   the card before it leaves the machine. Synthetic regression cases are built from
   cards on another machine.
 
-## Knowledge store (`yt-wiki`), not started
+## Knowledge store (`yt-wiki`)
 
-Contract: a harness with `folderKind: vault`. The sandbox writes only inside the
-vault, and capture and ask procedures are skills. Only generic parts move into the
-skeleton: the write guard, masking checks, and the capture and ask frames. Notes,
-rule files, and operating commands stay where they are.
+- `folderKind: vault` harnesses take `yt-spawn --vault <name>`. The name is looked
+  up in `vaults` in `~/yt-local/config.json`, and the path is kept in the session
+  list, so `yt resume` uses the same vault. The sandbox policy uses `<vault>`.
+- The `yt-wiki` harness has two skills. `capture` files notes under `inbox/` with
+  a front-matter header and updates an existing note before adding a duplicate.
+  `ask` answers only from the notes and cites them.
+- `yt-mask` is the masking check. It covers the repo guard's secret patterns,
+  personal data, and the local blocked terms. It reports the kind and line only,
+  and `--fix` masks in place.
+- Only generic parts live here. Notes, rule files, and operating commands stay in
+  the vault itself.
+- Verified live on both runtimes: capture with masking, and ask with sources and an
+  unchanged vault. The harness stays experimental until its evals pass.
 
-## Control panel and retirement, not started
+## Control panel and retirement
 
-Contract: a status view over `yt status`, `yt metrics`, and `yt improve` output. It
-also flags retirement when a harness has no tasks for 60 days. A panel is a
-runtime UI feature, so it must stay optional. Every action stays available as a
-`yt` command, so Claude and Codex keep the same behaviour.
+`yt panel` is one text view built from the coordinator's data. Its sections:
+**Needs you** (questions, past deadlines, results not collected, runs that ended
+without reporting), **Running**, **Harnesses** (version, on or off, last used,
+30-day tasks and success), **Retire?** (no use for 60 days), **Harness
+candidates**, and **Health** (`yt-doctor`). The `panel` skill runs it when the
+human asks for the overview. A graphical panel would be a runtime-only UI, so it is
+left out; every action stays a `yt` command, so Claude and Codex behave the same.

@@ -51,6 +51,7 @@ sandbox profile), not in runtime-specific features.
 | `yt-core/lib/ytlib/platform/` | One module per OS: package install and upgrade, sandbox backend |
 | `yt-core/lib/ytlib/runners/` | Runner adapters: `tmux` (default), `headless`, `orca` |
 | `yt-ops/` | First harness: read-only investigation |
+| `yt-wiki/` | Knowledge vault harness: capture notes, answer from them (experimental) |
 | `templates/harness.yaml` | Starting point for a new harness |
 | `.githooks/` | Repo guard (pre-commit and pre-push) |
 | `tests/` | Repo guard, sandbox, and instruction-length tests |
@@ -130,6 +131,7 @@ yt resume read-001 --deadline 1h
 yt answer read-001 "Include blank lines"    # or pass the human's answer through
 yt collect read-001                         # contract check, then print result.md
 yt forget read-001                          # drop a finished task from the list
+yt panel                                    # what needs you, what runs, harness health
 yt route read-check                         # which harness handles a task kind
 yt metrics --days 7                         # success rate, tokens, turns per harness and runtime
 yt harness list                             # harnesses, versions, on/off, Codex copies
@@ -157,6 +159,27 @@ yt-status waiting-human --question "Which branch should I compare?"
 yt-status done                     # out/result.md must exist
 yt-status failed --reason "Input file is missing"
 ```
+
+## Knowledge vault (`yt-wiki`)
+
+A `folderKind: vault` harness works inside a named folder. The vaults are listed
+in `~/yt-local/config.json`:
+
+```json
+{ "vaults": { "work-notes": "~/notes/work" } }
+```
+
+```sh
+yt-spawn cap-001 yt-wiki --vault work-notes --experimental   # brief: what to capture
+yt-spawn ask-001 yt-wiki --vault work-notes --experimental   # brief: the question
+```
+
+The sandbox can read and write the vault, the task folder, and nothing else. The
+`capture` skill files notes under `inbox/` and updates an existing note before it
+adds a new one. The `ask` skill answers only from the notes and lists them as
+sources. Both run `yt-mask` before they finish. `yt-mask` reports or masks secrets
+(the repo guard's patterns), personal data (email, phone, resident registration and
+card numbers), and the local blocked terms. It never prints the matched text.
 
 ## Runners
 
@@ -295,7 +318,7 @@ yourself before every push.
 ```sh
 tests/repo-guard/run.sh      # repo guard accept/reject cases
 python3 tests/sandbox/run.py # sandbox allow/deny cases for both runtimes (macOS; Linux via linux.py)
-python3 tests/lab/run.py             # roadmap frameworks: improve, eval, candidates, cards
+python3 tests/lab/run.py             # roadmap frameworks: improve, eval, candidates, cards, panel
 python3 tests/metrics/run.py         # same session as Claude and Codex logs -> same metrics
 python3 tests/guard/run.py           # yt-guard decisions, Claude- and Codex-shaped events
 python3 tests/contract/run.py         # same scenarios on Claude and Codex, fake runner, no model

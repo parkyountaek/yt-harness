@@ -3,7 +3,7 @@
 
 Usage:
   yt-spawn <task-id> <harness> [--runtime claude|codex] [--runner tmux|headless|orca] [--experimental]
-           [--deadline 30m|2h|<ISO 8601>] [--brief <file>]
+           [--deadline 30m|2h|<ISO 8601>] [--brief <file>] [--vault <name>]
 
 Task folder: ~/yt-work/<task-id>/
   in/        inputs prepared by the human (read-only to the session)
@@ -12,7 +12,9 @@ Task folder: ~/yt-work/<task-id>/
   TASK.md    work order generated here; identical for every runtime
 
 The brief (goal, constraints, done criteria) comes from --brief, or from
-in/BRIEF.md when --brief is omitted.
+in/BRIEF.md when --brief is omitted. A folderKind: vault harness also needs
+--vault <name>, one of "vaults" in ~/yt-local/config.json; the session may read
+and write inside that folder.
 
 Exit codes: 0 started, 1 duplicate task id, bad input, or start failure, 2 concurrency limit reached.
 """
@@ -38,7 +40,7 @@ coordinator's conversation; everything you need is in this file.
 - Task folder: {task_dir}
 - Inputs (read-only): {task_dir}/in/
 - Your working directory (writable): {task_dir}/out/
-- Deadline: {deadline}
+{vault_line}- Deadline: {deadline}
 
 ## Rules
 
@@ -81,6 +83,7 @@ def main(argv):
     ap.add_argument("--runner", default=runners.DEFAULT)
     ap.add_argument("--deadline")
     ap.add_argument("--brief")
+    ap.add_argument("--vault", help="vault name for folderKind: vault harnesses")
     ap.add_argument("--experimental", action="store_true", help="allow a harness marked experimental: true")
     args = ap.parse_args(argv)
 
@@ -104,8 +107,19 @@ def main(argv):
         return fail(f"harness {args.harness} is experimental; pass --experimental to use it for this task")
     if args.harness in core.disabled_harnesses():
         return fail(f"harness {args.harness} is turned off; `yt harness on {args.harness}` to use it")
-    if harness.get("folderKind") != "neutral":
-        return fail(f"folderKind {harness.get('folderKind')!r} is not implemented yet (only neutral)")
+    vault = None
+    if harness.get("folderKind") == "vault":
+        known = core.vaults()
+        if args.vault not in known:
+            return fail(f"harness {args.harness} needs --vault <name>; known: {', '.join(known) or 'none'} "
+                        "(add one under \"vaults\" in ~/yt-local/config.json)")
+        vault = known[args.vault]
+        if not (os.path.isdir(vault) and vault.startswith(core.HOME + "/")) or core.REPO.startswith(vault + "/"):
+            return fail(f"vault {vault} must be an existing folder inside $HOME and must not contain the repo")
+    elif harness.get("folderKind") != "neutral":
+        return fail(f"folderKind {harness.get('folderKind')!r} is not implemented yet (neutral or vault)")
+    elif args.vault:
+        return fail(f"harness {args.harness} does not use a vault")
     if args.runtime == "codex":
         problem = launch.codex_plugin_problem(args.harness, harness.get("version"))
         if problem:
@@ -145,7 +159,8 @@ def main(argv):
         with open(os.path.join(task_dir, "TASK.md"), "w", encoding="utf-8") as f:
             f.write(TASK_TEMPLATE.format(task_id=args.task_id, harness=args.harness,
                                          version=harness.get("version"), purpose=harness.get("purpose"),
-                                         task_dir=task_dir, deadline=core.iso(deadline), brief=brief))
+                                         task_dir=task_dir, deadline=core.iso(deadline), brief=brief,
+                                         vault_line=f"- Vault (read and write): {vault}\n" if vault else ""))
         core.write_status(task_dir, {
             "schema": 1, "taskId": args.task_id,
             "runner": args.runner, "runnerHandle": None,
@@ -155,7 +170,8 @@ def main(argv):
         })
         sessions[args.task_id] = {"taskId": args.task_id, "harness": args.harness, "runtime": args.runtime,
                                   "runner": args.runner, "runnerHandle": None, "runtimeSessionId": session_id,
-                                  "deadline": core.iso(deadline), "startedAt": core.iso(start), "starting": True}
+                                  "deadline": core.iso(deadline), "startedAt": core.iso(start), "starting": True,
+                                  **({"vault": args.vault, "vaultPath": vault} if vault else {})}
         core.save_sessions(reg)
 
     # Start outside the lock: finding the Codex session id can take a while.
@@ -163,7 +179,7 @@ def main(argv):
     handle = None
     try:
         handle, session_id = launch.start(args.task_id, args.harness, harness, args.runtime,
-                                          args.runner, session_id)
+                                          args.runner, session_id, vault=vault)
     except Exception as e:  # noqa: BLE001  any start failure must end in a recorded state
         error = str(e) or e.__class__.__name__
 

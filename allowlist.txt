@@ -19,3 +19,4 @@ yt-ops/
 yt-buildkit/
 yt-quality/
 yt-writing/
+yt-wiki/
