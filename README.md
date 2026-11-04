@@ -134,7 +134,13 @@ yt route read-check                         # which harness handles a task kind
 yt metrics --days 7                         # success rate, tokens, turns per harness and runtime
 yt harness list                             # harnesses, versions, on/off, Codex copies
 yt harness off yt-ops                       # refuse new sub-sessions of a harness
+yt harness new doc-review "Review a document"  # scaffold an experimental harness
+yt eval read-001 pass --fixed               # verdict for evaluation (no free text)
+yt improve yt-ops                           # compare harness versions
+yt card read-001                            # case card: shape of a task, no content
 ```
+
+Roadmap frameworks and their data contracts: `docs/roadmap.md`.
 
 Usually the coordinator skill (`yt-core/skills/coordinator/SKILL.md`) runs these
 for you: it picks the harness from `~/yt-local/routes.json`, writes the brief,
@@ -274,6 +280,8 @@ yourself before every push.
 
 ## Adding a harness
 
+`yt harness new <name> "<purpose>"` does steps 1 to 3; by hand:
+
 1. Copy `templates/harness.yaml` into `<name>/harness.yaml` and set `id: <name>`.
    Set `purpose` and `description`.
 2. Add `skills/`, then run `yt-core/bin/yt-build`. It generates both plugin
@@ -287,6 +295,7 @@ yourself before every push.
 ```sh
 tests/repo-guard/run.sh      # repo guard accept/reject cases
 python3 tests/sandbox/run.py # sandbox allow/deny cases for both runtimes (macOS; Linux via linux.py)
+python3 tests/lab/run.py             # roadmap frameworks: improve, eval, candidates, cards
 python3 tests/metrics/run.py         # same session as Claude and Codex logs -> same metrics
 python3 tests/guard/run.py           # yt-guard decisions, Claude- and Codex-shaped events
 python3 tests/contract/run.py         # same scenarios on Claude and Codex, fake runner, no model

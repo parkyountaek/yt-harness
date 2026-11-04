@@ -2,7 +2,7 @@
 """Start a harnessed sub-session for one task.
 
 Usage:
-  yt-spawn <task-id> <harness> [--runtime claude|codex] [--runner tmux]
+  yt-spawn <task-id> <harness> [--runtime claude|codex] [--runner tmux|headless|orca] [--experimental]
            [--deadline 30m|2h|<ISO 8601>] [--brief <file>]
 
 Task folder: ~/yt-work/<task-id>/
@@ -81,6 +81,7 @@ def main(argv):
     ap.add_argument("--runner", default=runners.DEFAULT)
     ap.add_argument("--deadline")
     ap.add_argument("--brief")
+    ap.add_argument("--experimental", action="store_true", help="allow a harness marked experimental: true")
     args = ap.parse_args(argv)
 
     if not core.TASK_ID.match(args.task_id):
@@ -99,6 +100,8 @@ def main(argv):
     if drift:
         return fail("Claude and Codex global setup differ, so their sub-sessions would not match:\n  "
                     + "\n  ".join(drift) + "\nFix the files, then retry (yt-setup --check shows this too).")
+    if harness.get("experimental") and not args.experimental:
+        return fail(f"harness {args.harness} is experimental; pass --experimental to use it for this task")
     if args.harness in core.disabled_harnesses():
         return fail(f"harness {args.harness} is turned off; `yt harness on {args.harness}` to use it")
     if harness.get("folderKind") != "neutral":

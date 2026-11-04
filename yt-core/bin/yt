@@ -14,6 +14,12 @@ Usage:
   yt metrics [--days N]                    per harness and runtime: tasks, success rate, tokens, turns
   yt harness list                          harnesses: version, on/off, Codex copy, routes
   yt harness on|off <name>                 allow or refuse new sub-sessions of a harness
+  yt harness new <name> "<purpose>"        scaffold a new (experimental) harness from the template
+  yt harness candidates                    task kinds with no route that came up twice or more
+  yt eval <task-id> pass|fail [--judge human|model|deterministic] [--fixed]
+                                           record a verdict (enumerations only, no notes)
+  yt improve <harness>                     compare versions: success, tokens, turns
+  yt card <task-id>                        case card: the task's shape without its content
 
 The task folder and deadline come from the coordinator's session list, never from
 status.json (the session can write that file). `yt status` marks a task stale when
@@ -22,12 +28,14 @@ without out/result.md or left an unreadable status.json.
 Exit codes: 0 ok, 1 error, 2 concurrency limit reached,
             3 not finished yet (collect), 4 the task failed (collect).
 """
+import json
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
 from ytlib import core  # noqa: E402
 from ytlib import launch  # noqa: E402
+from ytlib import lab  # noqa: E402
 from ytlib import metrics  # noqa: E402
 from ytlib import parity  # noqa: E402
 from ytlib import runners  # noqa: E402
@@ -216,6 +224,7 @@ def cmd_route(kind=None):
     if kind:
         match = [r for r in routes if r.get("taskKind") == kind]
         if not match:
+            lab.route_miss(kind)
             return fail(f"no route for {kind!r}; known: {', '.join(r.get('taskKind', '?') for r in routes) or 'none'}")
         routes = match
     for r in routes:
@@ -307,6 +316,51 @@ def cmd_metrics(days=30):
     return 0
 
 
+def task_entry(task_id):
+    """The session-list entry, or the last metrics line once the task was forgotten."""
+    e = core.load_sessions()["sessions"].get(task_id)
+    if e:
+        return e, core.read_status(core.task_dir(task_id)) or {}
+    for d in reversed(list(metrics._lines(metrics.METRICS)) if os.path.exists(metrics.METRICS) else []):
+        if d.get("taskId") == task_id:
+            return ({"harness": d["harness"], "runtime": d["runtime"], "runtimeSessionId": d.get("sessionId")},
+                    {"harnessVersion": d.get("harnessVersion"), "state": d.get("state")})
+    raise KeyError(task_id)
+
+
+def cmd_eval(task_id, opts):
+    verdict = opts[0] if opts else None
+    judge = opts[opts.index("--judge") + 1] if "--judge" in opts[:-1] else "human"
+    e, status = task_entry(task_id)
+    try:
+        line = lab.eval_record(task_id, e, status, verdict, judge, "--fixed" in opts)
+    except ValueError as ex:
+        return fail(str(ex))
+    print(f"yt: {task_id} {line['verdict']} ({line['judge']}" + (", human fixed it" if line["humanFixed"] else "") + ")")
+    return 0
+
+
+def cmd_improve(harness):
+    rows, verdict = lab.improve_report(harness)
+    if not rows:
+        print(f"no metrics for {harness} yet")
+        return 0
+    print("VERSION  TASKS  SUCCESS  AVG TOKENS  AVG TURNS")
+    for r in rows:
+        print(f"{r['version']:<8} {r['tasks']:<6} {r['success']:<8.0%} {r['tokens']:<11,.0f} {r['turns']:.1f}")
+    print(f"\n{verdict or 'one version only; nothing to compare'}")
+    print("Proposals and changes stay with the human; a regression in success always wins over savings.")
+    return 0
+
+
+def cmd_card(task_id):
+    e, status = task_entry(task_id)
+    print(json.dumps(lab.case_card(task_id, e, status), indent=2, ensure_ascii=False))
+    print("Check it before it leaves this machine: counts and kinds only, no names, values, or text.",
+          file=sys.stderr)
+    return 0
+
+
 def cmd_harness(action, name=None):
     names = core.harness_names()
     if action == "list":
@@ -345,6 +399,27 @@ def main(argv):
             return cmd_resume(rest[0], rest[2] if len(rest) == 3 else None)
         if cmd == "metrics" and (not rest or (len(rest) == 2 and rest[0] == "--days" and rest[1].isdigit())):
             return cmd_metrics(int(rest[1]) if rest else 30)
+        if cmd == "harness" and rest[:1] == ["new"] and len(rest) == 3:
+            try:
+                path = lab.harness_new(rest[1], rest[2])
+            except ValueError as ex:
+                return fail(str(ex))
+            print(f"yt: created {path} (experimental). Next: write its skill, add a route in "
+                  f"~/yt-local/routes.json, run yt-setup, then spawn with --experimental.")
+            return 0
+        if cmd == "harness" and rest == ["candidates"]:
+            found = lab.candidates()
+            for kind, n in found:
+                print(f"{kind}: no route, came up {n} times; consider `yt harness new`")
+            if not found:
+                print("no candidates")
+            return 0
+        if cmd == "eval" and len(rest) >= 2:
+            return cmd_eval(rest[0], rest[1:])
+        if cmd == "improve" and len(rest) == 1:
+            return cmd_improve(rest[0])
+        if cmd == "card" and len(rest) == 1:
+            return cmd_card(rest[0])
         if cmd == "harness" and rest[:1] == ["list"] and len(rest) == 1:
             return cmd_harness("list")
         if cmd == "harness" and rest[:1] in (["on"], ["off"]) and len(rest) == 2:
