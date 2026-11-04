@@ -51,7 +51,28 @@ def main():
     import re
     own_tmp = f"/private/tmp/claude-{os.getuid()}/" + re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(os.path.join(work, "out")))
 
+    # Peer messaging: a listening socket where other Claude sessions keep theirs, and one
+    # in the task's own tmp dir (where the sub-session keeps its own).
+    import socket
+    peer_sock = f"/private/tmp/cc-socks/yt-sandbox-peer-{os.getpid()}.sock"
+    own_sock = os.path.join(task_tmp, "cc-socks", "own.sock")
+    listeners = []
+    for path in (peer_sock, own_sock):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        srv = socket.socket(socket.AF_UNIX)
+        srv.bind(path)
+        srv.listen(64)
+        listeners.append(srv)
+    connect = ("cd {out} && TMPDIR={tmp}/ /usr/bin/python3 -I -c "
+               "'import socket,sys; socket.socket(socket.AF_UNIX).connect(sys.argv[1])' ").format(
+        out=os.path.join(work, "out"), tmp=task_tmp)
+
     common = [
+        ("deny", "connect to another session's messaging socket", connect + peer_sock),
+        ("allow", "connect to own messaging socket (task tmp)", connect + own_sock),
+        ("deny", "list the session registry ~/.claude/sessions", f"ls {HOME}/.claude/sessions"),
+        ("allow", "system python3 runs without xcrun cache errors",
+         f"cd {work}/out && /usr/bin/python3 -I -c 'print(1)' 2>&1 | (! grep -q xcrun_db)"),
         # (expect, name, shell command)
         ("allow", "read input", f"cat {work}/in/input.txt"),
         ("allow", "write out/", f"echo ok > {work}/out/result.md"),
@@ -117,6 +138,10 @@ def main():
                 if os.path.exists(marker):
                     os.remove(marker)
     finally:
+        for srv in listeners:
+            srv.close()
+        if os.path.exists(peer_sock):
+            os.remove(peer_sock)
         subprocess.run(["tmux", "kill-session", "-t", f"={host}"], capture_output=True)
         shutil.rmtree(work, ignore_errors=True)
         shutil.rmtree(outside, ignore_errors=True)

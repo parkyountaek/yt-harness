@@ -13,7 +13,7 @@ Steps:
   2. Enable the repo git hooks (core.hooksPath = .githooks)
   3. Create the local layer ~/yt-local/ ($YT_LOCAL overrides; never committed)
   4. Link yt-core for Claude (CLAUDE_CODE_PLUGIN_DIRS) and install it for Codex
-  5. Check that Claude and Codex global setup match (instructions, hooks, plugins);
+  5. Check that Claude and Codex global setup match (instructions, plugins; user hooks are off in sub-sessions);
      report only, never edits ~/.claude or ~/.codex instruction files
 
 Exit codes: 0 ready, 1 something is still missing or failed.
@@ -277,7 +277,7 @@ def set_codex_enabled(states):
 def step_parity():
     drift = parity.problems()
     if not drift:
-        say("ok", "Claude and Codex global setup match (instructions, hooks, plugins)")
+        say("ok", "Claude and Codex global setup match (instructions, plugins; user hooks are off in sub-sessions)")
         return True
     for p in drift:
         say("drift", p)

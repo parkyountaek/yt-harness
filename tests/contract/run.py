@@ -140,6 +140,11 @@ def scenario(rt):
         obs["TASK.md"] = fh.read()
     s = last_session(a)
     obs["wrapper"] = s["argv"][0]
+    obs["MCP and connectors off"] = (("--strict-mcp-config" in s["argv"]) if rt == "claude"
+                                     else ("features.apps=false" in s["argv"])) \
+        and s["env"].get("ENABLE_CLAUDEAI_MCP_SERVERS") == "false"
+    obs["user hooks off"] = ('{"disableAllHooks": true}' in s["argv"]) if rt == "claude" \
+        else ("features.hooks=false" in s["argv"])
     obs["prompt"] = s["argv"][-1]
     obs["env"] = sorted(s["env"])
     obs["env leaks nothing"] = sorted(k for k in s["env"] if k.startswith(("CLAUDE", "CODEX_SESSION", "ORCA_", "TMUX"))
@@ -189,6 +194,8 @@ def scenario(rt):
     r = last_session(c)
     sid = entry(c)["runtimeSessionId"]
     obs["resume prompt"] = r["argv"][-1]
+    obs["resume keeps hooks off"] = ('{"disableAllHooks": true}' in r["argv"]) if rt == "claude" \
+        else ("features.hooks=false" in r["argv"])
     obs["resume uses same session"] = sid in r["argv"] and (
         "--resume" in r["argv"] if rt == "claude" else "resume" in r["argv"])
     obs["forget while alive"] = yt("forget", c)
@@ -218,14 +225,14 @@ def scenario(rt):
 
 
 EXPECTED = {
-    "spawn": 0, "env leaks nothing": True, "wrapper": "sandbox-exec", "initial state": "running", "has session id": True,
+    "spawn": 0, "env leaks nothing": True, "user hooks off": True, "MCP and connectors off": True, "wrapper": "sandbox-exec", "initial state": "running", "has session id": True,
     "duplicate spawn": 1, "waiting without question": 1, "waiting": (0, "waiting-human"),
     "question kept": "Which file?", "back to running": (0, "running", False),
     "done without result": (1, "running"), "done": (0, "done"), "change after done": (1, "done"),
     "bad state": 1, "failed without reason": 1, "failed": (0, "failed"), "change after failed": (1, "failed"),
     "stale": ("stale", "waiting-human"), "resume while alive": 1, "stop": (0, False), "resume": 0,
     "state after resume": ("waiting-human", False, False), "deadline extended": True,
-    "resume uses same session": True, "forget while alive": 1, "done without result.md": "failed",
+    "resume uses same session": True, "resume keeps hooks off": True, "forget while alive": 1, "done without result.md": "failed",
     "unreadable status": "failed", "dirty out/": (1, False), "concurrency": [0, 0, 0, 2],
     "forget stopped": (0, False), "profile writes out/": True, "profile reads task": True,
     "profile denies escapes": True,
@@ -287,8 +294,8 @@ def test_parity():
     cases = [
         ("same instructions and plugins", fake_home(md, md + "\n", linked, None, toml), 0),
         ("instructions differ", fake_home(md, "# Global\n- Respond in English.\n", linked, None, toml), 1),
-        ("Claude-only hook", fake_home(md, md, dict(linked, hooks={"Stop": []}), None, toml), 1),
-        ("Codex-only hook", fake_home(md, md, linked, {"stop": []}, toml), 1),
+        ("hooks are not drift (disabled per run)", fake_home(md, md, dict(linked, hooks={"Stop": []}),
+                                                             {"Stop": []}, toml), 0),
         ("plugin enabled in Codex only", fake_home(md, md, linked, None,
                                                    toml + '[plugins."extra@m"]\nenabled = true\n'), 1),
         ("Codex instruction key", fake_home(md, md, linked, None, 'developer_instructions = "x"\n' + toml), 1),

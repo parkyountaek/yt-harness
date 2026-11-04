@@ -6,6 +6,7 @@ import sys
 import time
 
 from . import core
+from . import parity
 from . import platform as ytplatform
 from . import runners
 
@@ -14,17 +15,38 @@ RESUME_PROMPT = ("You were stopped and resumed. Re-read {task_dir}/TASK.md and {
                  "then continue from where you left off. Overwrite out/result.md; never append.")
 
 
+# User-level hooks are off in every sub-session, for both runtimes: they belong to the
+# human's own setup (e.g. a terminal app rewrites them), would run in one runtime only,
+# and could run code outside the sandbox's intent. Harness rules live in neutral layers.
+CLAUDE_NO_HOOKS = ["--settings", '{"disableAllHooks": true}']
+CODEX_NO_HOOKS = ["-c", "features.hooks=false"]
+
+# MCP servers and connectors (Gmail, Drive, Slack, Trello, ...) are off in every
+# sub-session: they are channels that move task data to outside services. Claude:
+# --strict-mcp-config with no --mcp-config, plus ENABLE_CLAUDEAI_MCP_SERVERS=false in
+# session_env for the claude.ai connectors. Codex: apps off, every configured server off.
+CLAUDE_NO_MCP = ["--strict-mcp-config"]
+
+
+def codex_no_mcp():
+    flags = ["-c", "features.apps=false"]
+    for name in sorted((parity.codex_config().get("mcp_servers") or {})):
+        flags += ["-c", f"mcp_servers.{name}.enabled=false"]
+    return flags
+
+
 def runtime_argv(runtime, harness, out_dir, session_id, prompt, resume=False):
     harness_path = core.harness_dir(harness)
     if runtime == "claude":
         sid = ["--resume", session_id] if resume else ["--session-id", session_id]
-        return ["claude", "--plugin-dir", harness_path, *sid, "--dangerously-skip-permissions", prompt]
+        return ["claude", "--plugin-dir", harness_path, *CLAUDE_NO_HOOKS, *CLAUDE_NO_MCP, *sid,
+                "--dangerously-skip-permissions", prompt]
     # Codex: the shared sandbox is the enforcement layer, so Codex's own sandbox is off
     # (the two cannot be nested). The harness plugin is installed disabled and enabled per run.
     if "." in out_dir:
         # Codex splits -c keys on dots, so the trust key would be misread.
         raise RuntimeError(f"task folder path must not contain '.': {out_dir}")
-    flags = ["-c", f"plugins.{harness}@yt-harness.enabled=true",
+    flags = [*CODEX_NO_HOOKS, *codex_no_mcp(), "-c", f"plugins.{harness}@yt-harness.enabled=true",
              "-c", f"projects.{out_dir}.trust_level=trusted",
              "--sandbox", "danger-full-access", "--ask-for-approval", "never"]
     if resume:
@@ -49,6 +71,7 @@ def session_env(task_dir, tmp_dir):
         "YT_TASK_DIR": task_dir,
         "TMPDIR": tmp_dir + "/",
         "CLAUDE_CODE_TMPDIR": tmp_dir,   # Claude's Bash tool keeps its cwd file here, not in /tmp
+        "ENABLE_CLAUDEAI_MCP_SERVERS": "false",   # no claude.ai connectors (see CLAUDE_NO_MCP)
         "PATH": os.pathsep.join([os.path.join(core.CORE, "bin"), py_bin, os.environ.get("PATH", "")]),
     })
     return env

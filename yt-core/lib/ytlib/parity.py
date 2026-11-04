@@ -8,7 +8,8 @@ It never changes the files; the human fixes them.
 Checked:
   instructions  ~/.claude/CLAUDE.md (+ ~/.claude/rules/*.md) vs ~/.codex/AGENTS.override.md
                 or ~/.codex/AGENTS.md (+ instruction keys in config.toml): same text
-  hooks         user-level hooks run in one runtime only: none allowed on either side
+  hooks         not compared: sub-sessions start with user-level hooks disabled on both
+                runtimes (see launch.runtime_argv); reported by claude_side/codex_side only
   plugins       globally enabled plugins: same names on both sides
 """
 import glob
@@ -43,6 +44,11 @@ def _codex_home(home):
     return os.environ.get("CODEX_HOME") or os.path.join(home, ".codex")
 
 
+def codex_config(home=HOME):
+    """~/.codex/config.toml as a dict (only the parts this package reads when tomllib is missing)."""
+    return _codex_config(home)
+
+
 def _codex_config(home):
     text = _read(os.path.join(_codex_home(home), "config.toml")) or ""
     if tomllib:
@@ -54,6 +60,7 @@ def _codex_config(home):
     cfg = {"plugins": {}}
     for m in re.finditer(r'^\[plugins\."([^"]+)"\]\s*\n(?:enabled\s*=\s*(true|false))?', text, re.M):
         cfg["plugins"][m.group(1)] = {"enabled": m.group(2) != "false"}
+    cfg["mcp_servers"] = {m.group(1): {} for m in re.finditer(r'^\[mcp_servers\.([A-Za-z0-9_-]+)\]', text, re.M)}
     for key in CODEX_INSTRUCTION_KEYS:
         if re.search(rf"^{key}\s*=", text, re.M):
             cfg[key] = "(set)"
@@ -111,10 +118,6 @@ def problems(home=HOME, require_both=True):
         out.append("~/.codex/config.toml sets " + ", ".join(x["instructionKeys"]) + "; Claude has no equivalent")
     if c["outputStyle"]:
         out.append(f"Claude outputStyle {c['outputStyle']!r} is set; Codex has no equivalent")
-    if c["hooks"]:
-        out.append("Claude user-level hooks run in Claude sub-sessions only: " + ", ".join(c["hooks"]))
-    if x["hooks"]:
-        out.append("Codex user-level hooks run in Codex sub-sessions only: " + ", ".join(x["hooks"]))
     if c["plugins"] != x["plugins"]:
         only_c, only_x = sorted(c["plugins"] - x["plugins"]), sorted(x["plugins"] - c["plugins"])
         out.append("globally enabled plugins differ: "

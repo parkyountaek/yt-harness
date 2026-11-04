@@ -150,6 +150,22 @@ Both runtimes run under one generated `sandbox-exec` profile
   runtime needs. Other sessions' transcripts and history cannot be read.
 - **Escape channels** are blocked: tmux sockets, AppleEvents, and running
   `open`, `osascript`, `launchctl`, `crontab`, `at`, `screen`, `ssh`, `tmux`.
+- **Peer sessions** are unreachable: the Claude session registry
+  (`~/.claude/sessions/`) and other sessions' messaging sockets (`cc-socks/`)
+  are closed, so a sub-session cannot list or message the coordinator or any
+  other local session. Its own socket lives in the task `tmp/`.
+
+Outside the profile, every sub-session also starts:
+
+- from a clean environment (an allowlist in `launch.session_env`, plus
+  `envPassthrough` in `~/yt-local/config.json`), so no coordinator token,
+  socket, or terminal-app variable leaks in;
+- with user-level hooks off and with no MCP servers or connectors (Claude:
+  `--strict-mcp-config`, `ENABLE_CLAUDEAI_MCP_SERVERS=false`; Codex:
+  `features.apps=false` and every configured server disabled).
+
+Known gap: network egress is open (the runtimes need their model APIs), so the
+built-in web tools and `curl` can still reach the internet.
 
 ## Global setup on each runtime
 
@@ -161,9 +177,12 @@ differ, the runtimes stop behaving the same, so yt-harness checks them
 (`ytlib/parity.py`) and never edits them:
 
 - the instruction text must be identical on both sides;
-- no user-level hooks on either side (a hook would run in one runtime only);
 - the same plugins must be enabled globally (normally only `yt-core`);
 - no runtime-only instruction settings (Codex `developer_instructions`, Claude `outputStyle`).
+
+User-level hooks are not compared: every sub-session starts with them turned
+off (`--settings '{"disableAllHooks": true}'` for Claude, `-c features.hooks=false`
+for Codex), so hooks that other tools install (e.g. a terminal app) never run there.
 
 `yt-setup --check` reports drift. `yt-spawn` and `yt resume` refuse to start
 until it is fixed. The check is skipped when only one runtime is installed.

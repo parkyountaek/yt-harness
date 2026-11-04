@@ -39,6 +39,14 @@ RUNTIME_PRIVATE = {
     "codex": [("literal", f"{HOME}/.codex/history.jsonl"), ("subpath", f"{HOME}/.codex/backups")],
 }
 
+# Peer messaging between local Claude sessions: each session registers in
+# ~/.claude/sessions/ (with an auth key) and listens on <tmp>/cc-socks/<pid>.sock.
+# A sub-session that can read the registry and connect to another session's socket
+# can make an unsandboxed session act for it, so both are closed for every runtime.
+# The sub-session's own socket lives in its task tmp dir and stays usable.
+PEER_REGISTRY = [("subpath", f"{HOME}/.claude/sessions")]
+PEER_SOCKET_REGEX = r"/cc-socks(/|$)"
+
 # Programs that ask a process outside the sandbox to run something for us.
 ESCAPE_EXECUTABLES = ["/usr/bin/open", "/usr/bin/osascript", "/bin/launchctl", "/usr/bin/crontab",
                       "/usr/bin/at", "/usr/bin/batch", "/usr/bin/screen", "/usr/bin/ssh"]
@@ -112,6 +120,11 @@ def private_read_roots():
     return roots
 
 
+def xcrun_cache():
+    temp = user_temp_root()
+    return [("regex", rf"^{re.escape(temp)}/T/xcrun_db")] if temp else []
+
+
 def tmux_socket_dirs():
     dirs = {f"/private/tmp/tmux-{UID}"}
     if os.environ.get("TMUX_TMPDIR"):
@@ -168,8 +181,16 @@ def sandbox_profile(policy, runtime, extra_read=(), tmp_dir=None, cwd=None):
         _rule("deny", "file-write*", RUNTIME_PROTECTED.get(runtime, [])),
         _rule("deny", "file-write*", private),
         _rule("allow", "file-write*", own),
+        # xcrun (behind /usr/bin/python3, git, ...) keeps a lookup cache in the user temp area
+        # (a later "file-read*" does not override the earlier "file-read-data" deny; name it)
+        _rule("allow", "file-read-data", xcrun_cache()),
+        _rule("allow", "file-write*", xcrun_cache()),
         # channels that run commands outside the sandbox
         _rule("deny", "file-read* file-write*", sockets),
+        _rule("deny", "file-read* file-write*", PEER_REGISTRY + [("regex", PEER_SOCKET_REGEX)]),
+        f'(deny network-outbound (remote unix-socket (path-regex #"{PEER_SOCKET_REGEX}")))',
+        *([_rule("allow", "file-read* file-write*", [("subpath", tmp_dir)]),
+           f'(allow network-outbound (remote unix-socket (subpath "{tmp_dir}")))'] if tmp_dir else []),
         "(deny network-outbound " + " ".join(f'(remote unix-socket (subpath "{d}"))'
                                              for d in tmux_socket_dirs()) + ")",
         "(deny appleevent-send)",
