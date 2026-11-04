@@ -168,9 +168,11 @@ Outside the profile, every sub-session also starts:
   `--strict-mcp-config`, `ENABLE_CLAUDEAI_MCP_SERVERS=false`; Codex:
   `features.apps=false` and every configured server disabled).
 
-Known gap: TCP egress is open (the runtimes need their model APIs), so the
-built-in web tools and `curl` can still reach the internet and TCP services on
-localhost.
+Network egress is open on purpose. Sub-sessions (and their subagents) must be
+able to search and fetch the web, and the runtimes' web search runs on the
+model provider's side, so a host allowlist proxy would add upkeep without
+closing that path. What stays closed is everything that acts outside the
+sandbox: local service sockets, peer sessions, escape programs, MCP connectors.
 
 ## Global setup on each runtime
 

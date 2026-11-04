@@ -144,6 +144,8 @@ def scenario(rt):
     obs["MCP and connectors off"] = (("--strict-mcp-config" in s["argv"]) if rt == "claude"
                                      else ("features.apps=false" in s["argv"])) \
         and s["env"].get("ENABLE_CLAUDEAI_MCP_SERVERS") == "false"
+    # Web search and fetch must stay available in sub-sessions (subagents use them).
+    obs["web tools on"] = not any("WebSearch" in a or "WebFetch" in a or "web_search" in a for a in s["argv"])
     obs["user hooks off"] = ('{"disableAllHooks": true}' in s["argv"]) if rt == "claude" \
         else ("features.hooks=false" in s["argv"])
     obs["prompt"] = s["argv"][-1]
@@ -226,7 +228,7 @@ def scenario(rt):
 
 
 EXPECTED = {
-    "spawn": 0, "env leaks nothing": True, "user hooks off": True, "MCP and connectors off": True, "wrapper": "sandbox-exec", "initial state": "running", "has session id": True,
+    "spawn": 0, "env leaks nothing": True, "user hooks off": True, "web tools on": True, "MCP and connectors off": True, "wrapper": "sandbox-exec", "initial state": "running", "has session id": True,
     "duplicate spawn": 1, "waiting without question": 1, "waiting": (0, "waiting-human"),
     "question kept": "Which file?", "back to running": (0, "running", False),
     "done without result": (1, "running"), "done": (0, "done"), "change after done": (1, "done"),
