@@ -10,6 +10,7 @@ Checks:
               links, command links, Claude/Codex global setup parity)
   build       runtime manifests match their neutral sources (`yt-build --check`)
   codex       the installed Codex copy of every harness matches its harness.yaml version
+  guard       Codex has trusted the yt-guard hook (note only)
   tasks       sub-sessions waiting for a human or past their deadline (notes, not problems)
 
 Warnings (e.g. tools not upgraded for a week) and task notes are shown but do not fail.
@@ -62,6 +63,19 @@ def check_codex():
     return problems
 
 
+def check_guard_trust():
+    """Codex runs plugin hooks only after the human approves them once in the Codex UI."""
+    path = os.path.join(os.environ.get("CODEX_HOME") or os.path.join(core.HOME, ".codex"), "config.toml")
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return []
+    if '"yt-core@yt-harness:hooks/hooks.json:pre_tool_use' in text:
+        return []
+    return ["Codex has not trusted the yt-guard hook yet; start Codex once and approve the yt-core hook"]
+
+
 def check_tasks():
     notes = []
     for task_id, e in sorted(core.load_sessions()["sessions"].items()):
@@ -82,7 +96,8 @@ def main(argv):
     quiet = "--quiet" in argv
     setup_bad, setup_warn = check_setup()
     results = [("setup", setup_bad), ("build", check_build()), ("codex", check_codex())]
-    notes = [("setup", w) for w in setup_warn] + [("tasks", n) for n in check_tasks()]
+    notes = [("setup", w) for w in setup_warn] + [("guard", n) for n in check_guard_trust()] \
+        + [("tasks", n) for n in check_tasks()]
     problems = sum(len(p) for _, p in results)
     for name, found in results:
         if not found and not quiet:

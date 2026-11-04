@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""PreToolUse hook for Claude and Codex: block risky commands before they run.
+
+Reads the hook event (JSON) on stdin. Blocks with exit code 2 and a reason on stderr;
+otherwise exits 0 and prints nothing. It never answers "allow", so other hooks and the
+runtime's own permission prompts keep working exactly as before.
+
+Categories and rules: ytlib/guard.py. To lift a category for one session, the human
+starts the session with YT_GUARD_ALLOW=<category>[,<category>] (infra, db, secrets, git).
+Mutable machine configuration cannot disable this hook. Session exceptions must
+come from the environment inherited when the human starts the runtime.
+Sub-sessions start with hooks off; the shared sandbox protects them instead.
+"""
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
+from ytlib import guard  # noqa: E402
+
+ADVICE = {
+    "infra": "Use a read-only command (get, describe, plan, list, status) or ask the human to run the change.",
+    "db": "Ask the human to run the query, or work from an export they provide.",
+    "secrets": "Do not read secret files. Ask the human for the specific non-secret value you need.",
+    "git": "Ask the human; force pushes and remote deletions cannot be undone.",
+}
+
+
+def log(category, tool):
+    """Metadata only (never the command). Best effort: the hook must not fail on logging."""
+    try:
+        from ytlib import core
+        core.log_event("guard", category=category, tool=tool)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def failure(allow):
+    """Unknown input/errors fail closed for secrets; other categories fail open."""
+    if "secrets" in allow:
+        return 0
+    print("yt-guard blocked this (secrets): unable to validate the hook input safely.", file=sys.stderr)
+    return 2
+
+
+def main():
+    allow = [c.strip() for c in os.environ.get("YT_GUARD_ALLOW", "").split(",") if c.strip()]
+    try:
+        event = json.load(sys.stdin)
+        if not isinstance(event, dict):
+            return failure(allow)
+    except (ValueError, OSError):
+        return failure(allow)
+    tool = str(event.get("tool_name", ""))
+    try:
+        verdict = guard.check(tool, event.get("tool_input") or {}, allow, event.get("cwd"))
+    except Exception:  # noqa: BLE001
+        return failure(allow)
+    if not verdict:
+        return 0
+    category, reason = verdict
+    log(category, tool)
+    print(f"yt-guard blocked this ({category}): {reason}. {ADVICE[category]} "
+          f"If the human wants to allow it, they restart the session with YT_GUARD_ALLOW={category}.",
+          file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

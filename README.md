@@ -209,6 +209,27 @@ Inside a task, the work order says how the two layers combine. User-level
 instructions still apply. Where they conflict with the work order, the work
 order wins. `result.md` is written in the language of the brief.
 
+## yt-guard (all sessions)
+
+`yt-core` carries a PreToolUse hook (`hooks/hooks.json` → `bin/yt-guard`) that both
+runtimes run before every tool call in normal and coordinator sessions. It blocks
+infra writes, interactive database clients, reading secret files, and irreversible
+remote git; rules are in `ytlib/guard.py`, cases in `tests/guard/run.py`.
+
+- It only blocks (exit 2 with a reason). It never answers "allow", so existing
+  user-level hooks and permission prompts behave exactly as before; if any hook
+  blocks, the call is blocked.
+- It never edits `~/.claude/settings.json` or `~/.codex/hooks.json`.
+- The human lifts a category for one session with `YT_GUARD_ALLOW=infra,secrets`
+  set before starting it. No file can turn the guard off, so an agent cannot either.
+  Blocks are logged as metadata only (category, tool).
+- Unreadable hook input or an internal error blocks (secrets fail closed); other
+  parse failures let the command through.
+- It is a best-effort guard on visible commands, not a sandbox: computed file
+  names, shell aliases and functions, and arbitrary programs are out of its reach.
+- Codex asks once to trust the plugin hook; `yt-doctor` notes it until then.
+- Sub-sessions start with hooks off; the sandbox protects them instead.
+
 ## Repo guard
 
 The repository holds the shared skeleton only. The hooks reject a commit or push when:
@@ -237,6 +258,7 @@ yourself before every push.
 ```sh
 tests/repo-guard/run.sh      # repo guard accept/reject cases
 python3 tests/sandbox/run.py # sandbox allow/deny cases for both runtimes (macOS)
+python3 tests/guard/run.py           # yt-guard decisions, Claude- and Codex-shaped events
 python3 tests/contract/run.py         # same scenarios on Claude and Codex, fake runner, no model
 python3 tests/contract/run.py --live  # plus one real task on both runtimes (model calls)
 tests/instructions/run.sh    # instruction files stay under 200 lines

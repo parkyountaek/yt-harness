@@ -6,7 +6,7 @@ Usage: yt-update [--full]
   1. Refuse while a sub-session is running or starting, or the checkout has local changes
   2. git pull --ff-only (never merges or rewrites local history)
   3. yt-build --check, then the regression tests:
-       tests/instructions/run.sh, tests/contract/run.py, tests/sandbox/run.py
+       tests/instructions/run.sh, tests/guard/run.py, tests/contract/run.py, tests/sandbox/run.py
        (--full adds tests/repo-guard/run.sh, which takes a few minutes)
   4. yt-setup (refreshes the Codex copies and the command links)
   5. On any failure: move back to the previous commit (git reset --keep) and rerun yt-setup
@@ -23,7 +23,8 @@ from ytlib import runners  # noqa: E402
 
 BIN = os.path.dirname(os.path.realpath(__file__))
 REPO = os.path.dirname(os.path.dirname(BIN))
-TESTS = [["sh", "tests/instructions/run.sh"], [sys.executable, "tests/contract/run.py"],
+TESTS = [["sh", "tests/instructions/run.sh"], [sys.executable, "tests/guard/run.py"],
+         [sys.executable, "tests/contract/run.py"],
          [sys.executable, "tests/sandbox/run.py"]]
 FULL = [["sh", "tests/repo-guard/run.sh"]]
 
