@@ -64,7 +64,9 @@ def _spawn(name, cwd, argv, env):
 fake.spawn = _spawn
 fake.alive = lambda h: fake.sessions.get(h, {}).get("alive", False)
 fake.stop = lambda h: fake.sessions.get(h, {}).update(alive=False) or 0
-fake.attach = fake.send = lambda h, *a: 0
+fake.sent = []
+fake.attach = lambda h: 0
+fake.send = lambda h, text: fake.sent.append((h, text)) or 0
 sys.modules[fake.__name__] = fake
 runners.fake = fake
 launch.STARTUP_GRACE = 0
@@ -165,19 +167,26 @@ def scenario(rt):
     obs["duplicate spawn"] = spawn(a, rt)
     # session-side transitions
     obs["waiting without question"] = yt_status(a, "waiting-human")
+    obs["collect not finished"] = yt("collect", a)
     obs["waiting"] = (yt_status(a, "waiting-human", "--question", "Which file?"), state(a))
+    before = len(fake.sent)
+    obs["answer"] = (yt("answer", a, "the second one"), fake.sent[before:] == [(entry(a)["runnerHandle"],
+                                                                              "the second one")])
     obs["question kept"] = (core.read_status(task) or {}).get("question")
     obs["back to running"] = (yt_status(a, "running"), state(a), "question" in core.read_status(task))
     obs["done without result"] = (yt_status(a, "done"), state(a))
     write_result(a)
     obs["done"] = (yt_status(a, "done"), state(a))
     obs["change after done"] = (yt_status(a, "running"), state(a))
+    obs["collect done"] = yt("collect", a)
+    obs["answer when not waiting"] = yt("answer", a, "x")
     obs["bad state"] = yt_status(a, "finished")
     # failed path
     spawn(b, rt)
     obs["failed without reason"] = yt_status(b, "failed")
     obs["failed"] = (yt_status(b, "failed", "--reason", "input missing"), state(b))
     obs["change after failed"] = (yt_status(b, "done"), state(b))
+    obs["collect failed"] = yt("collect", b)
     # deadline -> stale -> stop -> resume
     spawn(c, rt)
     yt_status(c, "waiting-human", "--question", "Proceed?")
@@ -215,6 +224,7 @@ def scenario(rt):
         fh.write("{not json")
     yt("status")
     obs["unreadable status"] = state(e)
+    obs["route"] = (yt("route", "read-check"), yt("route", "no-such-kind"))
     # refusals and limits
     os.makedirs(os.path.join(core.task_dir(f), "out"), exist_ok=True)
     with open(os.path.join(core.task_dir(f), "out", "old.md"), "w", encoding="utf-8") as fh:
@@ -237,7 +247,8 @@ EXPECTED = {
     "state after resume": ("waiting-human", False, False), "deadline extended": True,
     "resume uses same session": True, "resume keeps hooks off": True, "forget while alive": 1, "done without result.md": "failed",
     "unreadable status": "failed", "dirty out/": (1, False), "concurrency": [0, 0, 0, 2],
-    "forget stopped": (0, False), "profile writes out/": True, "profile reads task": True,
+    "forget stopped": (0, False), "collect done": 0, "collect not finished": 3, "collect failed": 4,
+    "answer when not waiting": 1, "answer": (0, True), "route": (0, 1), "profile writes out/": True, "profile reads task": True,
     "profile denies escapes": True,
 }
 
@@ -248,6 +259,9 @@ def normalize(value, rt):
 
 
 def test_scenarios():
+    os.makedirs(core.LOCAL, exist_ok=True)
+    with open(os.path.join(core.LOCAL, "routes.json"), "w", encoding="utf-8") as fh:
+        json.dump({"schema": 1, "routes": [{"taskKind": "read-check", "harness": "yt-ops"}]}, fh)
     with open(os.path.join(ROOT, "brief.md"), "w", encoding="utf-8") as fh:
         fh.write("Count the lines of in/sample.txt.\n")
     observed = {rt: scenario(rt) for rt in RUNTIMES}

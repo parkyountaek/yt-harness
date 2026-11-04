@@ -13,7 +13,8 @@ Steps:
   2. Enable the repo git hooks (core.hooksPath = .githooks)
   3. Create the local layer ~/yt-local/ ($YT_LOCAL overrides; never committed)
   4. Link yt-core for Claude (CLAUDE_CODE_PLUGIN_DIRS) and install it for Codex
-  5. Check that Claude and Codex global setup match (instructions, plugins; user hooks are off in sub-sessions);
+  5. Link yt, yt-spawn, yt-setup, yt-build into ~/.local/bin
+  6. Check that Claude and Codex global setup match (instructions, plugins; user hooks are off in sub-sessions);
      report only, never edits ~/.claude or ~/.codex instruction files
 
 Exit codes: 0 ready, 1 something is still missing or failed.
@@ -274,6 +275,33 @@ def set_codex_enabled(states):
         f.write(text)
 
 
+COMMANDS = ("yt", "yt-spawn", "yt-setup", "yt-build")
+
+
+def step_commands(check_only):
+    """Link the coordinator commands into ~/.local/bin (never replaces someone else's file)."""
+    bindir = os.path.join(HOME, ".local", "bin")
+    ok = True
+    for name in COMMANDS:
+        target, link = os.path.join(CORE, "bin", name), os.path.join(bindir, name)
+        if os.path.islink(link) and os.path.realpath(link) == os.path.realpath(target):
+            continue
+        if os.path.lexists(link):
+            say("warn", f"{link} exists and is not yt-harness's; left alone")
+            ok = False
+            continue
+        if check_only:
+            say("missing", f"command link {link}")
+            ok = False
+            continue
+        os.makedirs(bindir, exist_ok=True)
+        os.symlink(target, link)
+    on_path = bindir in os.environ.get("PATH", "").split(os.pathsep)
+    if ok:
+        say("ok", f"commands linked in {bindir}" + ("" if on_path else " (add it to PATH)"))
+    return ok
+
+
 def step_parity():
     drift = parity.problems()
     if not drift:
@@ -306,6 +334,7 @@ def main(argv):
         step_local(check_only),
         step_claude(check_only),
         step_codex(check_only),
+        step_commands(check_only),
         step_parity(),
     ]
     ready = all(results)

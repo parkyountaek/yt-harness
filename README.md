@@ -87,7 +87,8 @@ yt-core/bin/yt-setup --upgrade  # upgrade tools, then rerun the repo guard tests
 3. Creates `~/yt-local/` and records the checkout path.
 4. Links yt-core for Claude (`CLAUDE_CODE_PLUGIN_DIRS`). For Codex it adds the
    marketplace, installs yt-core enabled, and installs every harness disabled.
-5. Checks that the Claude and Codex global setup match (see below).
+5. Links the commands into `~/.local/bin`.
+6. Checks that the Claude and Codex global setup match (see below).
 
 The local layer defaults to `~/yt-local/`; set `YT_LOCAL` to move it
 (`YT_WORK` moves `~/yt-work/` the same way).
@@ -108,11 +109,10 @@ Linux and Windows have not been verified on real machines yet.
 
 ## Usage
 
-The commands live in `yt-core/bin/`. Add it to `PATH` (setup does not change
-your shell profile):
+`yt-setup` links `yt`, `yt-spawn`, `yt-setup`, and `yt-build` into
+`~/.local/bin` (it warns when that is not on `PATH`).
 
 ```sh
-export PATH="$PWD/yt-core/bin:$PATH"
 mkdir -p ~/yt-work/read-001/in
 $EDITOR ~/yt-work/read-001/in/BRIEF.md      # goal, constraints, done criteria
 yt-spawn read-001 yt-ops --runtime codex --deadline 30m
@@ -120,8 +120,15 @@ yt status
 yt attach read-001                          # when the state is waiting-human
 yt stop read-001
 yt resume read-001 --deadline 1h
+yt answer read-001 "Include blank lines"    # or pass the human's answer through
+yt collect read-001                         # contract check, then print result.md
 yt forget read-001                          # drop a finished task from the list
+yt route read-check                         # which harness handles a task kind
 ```
+
+Usually the coordinator skill (`yt-core/skills/coordinator/SKILL.md`) runs these
+for you: it picks the harness from `~/yt-local/routes.json`, writes the brief,
+relays questions word for word, and reports the collected result.
 
 `yt-spawn` refuses an id that is already registered, and refuses an `out/`
 that is not empty. The result is in `~/yt-work/<id>/out/result.md`.

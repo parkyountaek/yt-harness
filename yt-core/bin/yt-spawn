@@ -51,7 +51,7 @@ coordinator's conversation; everything you need is in this file.
 6. Do not try to read or write outside the task folder. The sandbox blocks it; do not work around it.
 7. Your user-level instructions still apply. Where they conflict with this work order,
    this work order wins inside this task.
-8. Write result.md in the language of the brief unless the brief says otherwise.
+8. Write result.md and your questions in the language of the brief unless the brief says otherwise.
 
 ## Brief
 

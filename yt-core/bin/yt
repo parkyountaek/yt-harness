@@ -8,12 +8,16 @@ Usage:
   yt resume <task-id> [--deadline 30m]     restart a stopped sub-session; the deadline restarts
                                            from now (default: the harness deadline)
   yt forget <task-id>                      drop a stopped or finished task from the session list
+  yt route [<task-kind>]                   show the task-kind -> harness routes (~/yt-local/routes.json)
+  yt collect <task-id>                     check the result against the contract and print it
+  yt answer <task-id> "<text>"             type the human's answer into a waiting-human session
 
 The task folder and deadline come from the coordinator's session list, never from
 status.json (the session can write that file). `yt status` marks a task stale when
 its deadline passed and it is not done or failed, and failed when it reported done
 without out/result.md or left an unreadable status.json.
-Exit codes: 0 ok, 1 error, 2 concurrency limit reached.
+Exit codes: 0 ok, 1 error, 2 concurrency limit reached,
+            3 not finished yet (collect), 4 the task failed (collect).
 """
 import os
 import sys
@@ -183,6 +187,73 @@ def cmd_forget(task_id):
     return 0
 
 
+RESULT_LIMIT = 200_000  # bytes; a larger result.md is not a summary
+
+
+def cmd_route(kind=None):
+    routes = (core.read_json(os.path.join(core.LOCAL, "routes.json"), {}) or {}).get("routes", [])
+    if kind:
+        match = [r for r in routes if r.get("taskKind") == kind]
+        if not match:
+            return fail(f"no route for {kind!r}; known: {', '.join(r.get('taskKind', '?') for r in routes) or 'none'}")
+        routes = match
+    for r in routes:
+        print(f"{r.get('taskKind')}  ->  {r.get('harness')}  (folder {r.get('folderKind', 'neutral')}"
+              + (f", repo {r['repo']}" if r.get("repo") else "") + ")")
+    return 0 if routes else fail("no routes in ~/yt-local/routes.json")
+
+
+def cmd_collect(task_id):
+    """Contract check before the coordinator reports a result to the human."""
+    e = core.load_sessions()["sessions"].get(task_id)
+    if not e:
+        raise KeyError(task_id)
+    status = judge(task_id, e)
+    state = status.get("state")
+    if state in ("running", "waiting-human", "stale", "busy"):
+        print(f"yt: {task_id} is {state}" + (f": {status.get('question')}" if status.get("question") else ""))
+        return 3
+    if state == "failed":
+        print(f"yt: {task_id} failed: {status.get('reason', 'no reason given')}")
+        return 4
+    problems = []
+    if state != "done":
+        problems.append(f"state is {state!r}")
+    if status.get("taskId") != task_id:
+        problems.append(f"status.json taskId is {status.get('taskId')!r}")
+    if status.get("harness") != e["harness"] or status.get("runtime") != e["runtime"]:
+        problems.append("status.json harness/runtime differ from the session list")
+    path = core.result_path(core.task_dir(task_id))
+    size = os.path.getsize(path) if os.path.isfile(path) else -1
+    if size <= 0:
+        problems.append("out/result.md is missing or empty")
+    elif size > RESULT_LIMIT:
+        problems.append(f"out/result.md is {size} bytes (limit {RESULT_LIMIT})")
+    if problems:
+        print(f"yt: {task_id} does not meet the result contract: " + "; ".join(problems), file=sys.stderr)
+        return 1
+    core.log_event("collect", taskId=task_id, bytes=size)
+    print(f"# {task_id} ({e['harness']} {status.get('harnessVersion', '')}, {e['runtime']}): done")
+    print(f"# result: {path}\n")
+    with open(path, encoding="utf-8", errors="replace") as f:
+        print(f.read().rstrip())
+    return 0
+
+
+def cmd_answer(task_id, text):
+    e, runner = entry_and_runner(task_id)
+    if not is_alive(e, runner):
+        return fail(f"{task_id} is not running; use `yt resume {task_id}` first")
+    state = (core.read_status(core.task_dir(task_id)) or {}).get("state")
+    if state != "waiting-human":
+        return fail(f"{task_id} is {state}, not waiting-human; use `yt attach {task_id}` to talk to it")
+    if not text.strip():
+        return fail("empty answer")
+    rc = runner.send(e["runnerHandle"], text)
+    core.log_event("answer", taskId=task_id, ok=rc == 0, chars=len(text))  # never the text itself
+    return 0 if rc == 0 else fail("could not type into the session")
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
@@ -193,6 +264,12 @@ def main(argv):
             return cmd_status()
         if cmd == "resume" and len(rest) in (1, 3) and (len(rest) == 1 or rest[1] == "--deadline"):
             return cmd_resume(rest[0], rest[2] if len(rest) == 3 else None)
+        if cmd == "route" and len(rest) <= 1:
+            return cmd_route(*rest)
+        if cmd == "collect" and len(rest) == 1:
+            return cmd_collect(rest[0])
+        if cmd == "answer" and len(rest) == 2:
+            return cmd_answer(rest[0], rest[1])
         if cmd in ("attach", "stop", "forget") and len(rest) == 1:
             return {"attach": cmd_attach, "stop": cmd_stop, "forget": cmd_forget}[cmd](rest[0])
     except KeyError as e:
