@@ -77,6 +77,7 @@ yt-core/bin/yt-setup            # install and configure everything
 yt-core/bin/yt-setup --check    # report only, change nothing
 yt-core/bin/yt-setup --upgrade  # upgrade tools, then rerun the repo guard tests
 yt-doctor                       # read-only health check (setup, manifests, Codex copies, tasks)
+yt-update [--full]              # pull the skeleton, run the tests, roll back on failure
 ```
 
 `yt-setup` is safe to rerun. It:
@@ -110,7 +111,7 @@ Linux and Windows have not been verified on real machines yet.
 
 ## Usage
 
-`yt-setup` links `yt`, `yt-spawn`, `yt-setup`, `yt-build`, and `yt-doctor` into
+`yt-setup` links `yt`, `yt-spawn`, `yt-setup`, `yt-build`, `yt-doctor`, and `yt-update` into
 `~/.local/bin` (it warns when that is not on `PATH`).
 
 ```sh
@@ -125,6 +126,8 @@ yt answer read-001 "Include blank lines"    # or pass the human's answer through
 yt collect read-001                         # contract check, then print result.md
 yt forget read-001                          # drop a finished task from the list
 yt route read-check                         # which harness handles a task kind
+yt harness list                             # harnesses, versions, on/off, Codex copies
+yt harness off yt-ops                       # refuse new sub-sessions of a harness
 ```
 
 Usually the coordinator skill (`yt-core/skills/coordinator/SKILL.md`) runs these

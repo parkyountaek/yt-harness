@@ -11,6 +11,8 @@ Usage:
   yt route [<task-kind>]                   show the task-kind -> harness routes (~/yt-local/routes.json)
   yt collect <task-id>                     check the result against the contract and print it
   yt answer <task-id> "<text>"             type the human's answer into a waiting-human session
+  yt harness list                          harnesses: version, on/off, Codex copy, routes
+  yt harness on|off <name>                 allow or refuse new sub-sessions of a harness
 
 The task folder and deadline come from the coordinator's session list, never from
 status.json (the session can write that file). `yt status` marks a task stale when
@@ -254,6 +256,32 @@ def cmd_answer(task_id, text):
     return 0 if rc == 0 else fail("could not type into the session")
 
 
+def cmd_harness(action, name=None):
+    names = core.harness_names()
+    if action == "list":
+        routes = (core.read_json(os.path.join(core.LOCAL, "routes.json"), {}) or {}).get("routes", [])
+        off = core.disabled_harnesses()
+        rows = []
+        for n in names:
+            h = core.load_harness(n)
+            codex = launch.codex_plugin_problem(n, h.get("version"))
+            kinds = ", ".join(r["taskKind"] for r in routes if r.get("harness") == n) or "-"
+            rows.append((n, str(h.get("version")), "off" if n in off else "on",
+                         "ok" if not codex else ("old" if "old copy" in codex else "missing"),
+                         "yes" if h.get("experimental") else "no", kinds, str(h.get("purpose", ""))))
+        head = ("HARNESS", "VERSION", "STATE", "CODEX", "EXPERIMENTAL", "ROUTES", "PURPOSE")
+        widths = [max(len(r[i]) for r in rows + [head]) for i in range(len(head))]
+        for r in [head] + rows:
+            print("  ".join(v.ljust(w) for v, w in zip(r, widths)).rstrip())
+        return 0
+    if name not in names:
+        return fail(f"unknown harness {name!r}; known: {', '.join(names)}")
+    core.set_harness_enabled(name, action == "on")
+    core.log_event("harness", harness=name, enabled=action == "on")
+    print(f"yt: harness {name} is {action}" + ("" if action == "on" else " (running sub-sessions are not affected)"))
+    return 0
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
@@ -264,6 +292,10 @@ def main(argv):
             return cmd_status()
         if cmd == "resume" and len(rest) in (1, 3) and (len(rest) == 1 or rest[1] == "--deadline"):
             return cmd_resume(rest[0], rest[2] if len(rest) == 3 else None)
+        if cmd == "harness" and rest[:1] == ["list"] and len(rest) == 1:
+            return cmd_harness("list")
+        if cmd == "harness" and rest[:1] in (["on"], ["off"]) and len(rest) == 2:
+            return cmd_harness(rest[0], rest[1])
         if cmd == "route" and len(rest) <= 1:
             return cmd_route(*rest)
         if cmd == "collect" and len(rest) == 1:

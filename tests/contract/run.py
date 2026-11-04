@@ -225,6 +225,10 @@ def scenario(rt):
     yt("status")
     obs["unreadable status"] = state(e)
     obs["route"] = (yt("route", "read-check"), yt("route", "no-such-kind"))
+    stop_all()
+    yt("harness", "off", "yt-ops")
+    obs["spawn refused when harness off"] = (spawn(f"off-{rt}", rt), bool(entry(f"off-{rt}")))
+    yt("harness", "on", "yt-ops")
     # refusals and limits
     os.makedirs(os.path.join(core.task_dir(f), "out"), exist_ok=True)
     with open(os.path.join(core.task_dir(f), "out", "old.md"), "w", encoding="utf-8") as fh:
@@ -248,7 +252,7 @@ EXPECTED = {
     "resume uses same session": True, "resume keeps hooks off": True, "forget while alive": 1, "done without result.md": "failed",
     "unreadable status": "failed", "dirty out/": (1, False), "concurrency": [0, 0, 0, 2],
     "forget stopped": (0, False), "collect done": 0, "collect not finished": 3, "collect failed": 4,
-    "answer when not waiting": 1, "answer": (0, True), "route": (0, 1), "profile writes out/": True, "profile reads task": True,
+    "answer when not waiting": 1, "answer": (0, True), "route": (0, 1), "spawn refused when harness off": (1, False), "profile writes out/": True, "profile reads task": True,
     "profile denies escapes": True,
 }
 

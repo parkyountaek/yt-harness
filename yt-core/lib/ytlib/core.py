@@ -216,6 +216,23 @@ def load_harness(name):
     return data
 
 
+def harness_names():
+    return sorted(d for d in os.listdir(REPO) if d != "templates"
+                  and os.path.isfile(os.path.join(REPO, d, "harness.yaml")))
+
+
+def disabled_harnesses():
+    return set((read_json(CONFIG, {}) or {}).get("disabledHarnesses", []))
+
+
+def set_harness_enabled(name, enabled):
+    config = read_json(CONFIG, {}) or {}
+    off = set(config.get("disabledHarnesses", []))
+    off.discard(name) if enabled else off.add(name)
+    config["disabledHarnesses"] = sorted(off)
+    write_json_atomic(CONFIG, config)
+
+
 def safe_deadline(text):
     """Parse a deadline; None when missing or malformed (never raise on bad input)."""
     try:

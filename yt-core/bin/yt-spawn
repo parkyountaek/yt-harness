@@ -99,6 +99,8 @@ def main(argv):
     if drift:
         return fail("Claude and Codex global setup differ, so their sub-sessions would not match:\n  "
                     + "\n  ".join(drift) + "\nFix the files, then retry (yt-setup --check shows this too).")
+    if args.harness in core.disabled_harnesses():
+        return fail(f"harness {args.harness} is turned off; `yt harness on {args.harness}` to use it")
     if harness.get("folderKind") != "neutral":
         return fail(f"folderKind {harness.get('folderKind')!r} is not implemented yet (only neutral)")
     if args.runtime == "codex":
