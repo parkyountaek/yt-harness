@@ -76,6 +76,7 @@ git clone <this repo> && cd yt-harness
 yt-core/bin/yt-setup            # install and configure everything
 yt-core/bin/yt-setup --check    # report only, change nothing
 yt-core/bin/yt-setup --upgrade  # upgrade tools, then rerun the repo guard tests
+yt-doctor                       # read-only health check (setup, manifests, Codex copies, tasks)
 ```
 
 `yt-setup` is safe to rerun. It:
@@ -109,7 +110,7 @@ Linux and Windows have not been verified on real machines yet.
 
 ## Usage
 
-`yt-setup` links `yt`, `yt-spawn`, `yt-setup`, and `yt-build` into
+`yt-setup` links `yt`, `yt-spawn`, `yt-setup`, `yt-build`, and `yt-doctor` into
 `~/.local/bin` (it warns when that is not on `PATH`).
 
 ```sh

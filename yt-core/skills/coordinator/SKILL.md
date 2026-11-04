@@ -16,6 +16,8 @@ Stop at the first match.
 
 ## Start a sub-session
 
+0. Once per conversation, before the first spawn, run `yt-doctor --quiet`. If it reports a
+   problem, tell the human and fix setup first (usually `yt-setup`); notes are informational.
 1. Find the harness: `yt route <task-kind>`. With no match, show `yt route` and ask the
    human which harness to use. Never invent a route.
 2. Pick a task id: lowercase letters, digits, dashes, e.g. `read-002`. `yt status` shows

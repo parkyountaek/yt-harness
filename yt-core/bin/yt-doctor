@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Check that yt-harness is ready on this machine. Changes nothing.
+
+Usage: yt-doctor [--quiet]
+
+  --quiet   print one line when everything is fine; otherwise only the problems
+
+Checks:
+  setup       everything `yt-setup --check` checks (tools, hooks, local layer, plugin
+              links, command links, Claude/Codex global setup parity)
+  build       runtime manifests match their neutral sources (`yt-build --check`)
+  codex       the installed Codex copy of every harness matches its harness.yaml version
+  tasks       sub-sessions waiting for a human or past their deadline (notes, not problems)
+
+Warnings (e.g. tools not upgraded for a week) and task notes are shown but do not fail.
+Exit codes: 0 ready, 1 at least one problem.
+"""
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
+from ytlib import core  # noqa: E402
+from ytlib import launch  # noqa: E402
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+
+
+def run(name, *args):
+    r = subprocess.run([sys.executable, os.path.join(BIN, name), *args], capture_output=True, text=True)
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def check_setup():
+    """(problems, warnings) from yt-setup --check."""
+    rc, out = run("yt-setup", "--check")
+    lines = [line.strip() for line in out.splitlines()]
+    bad = [l for l in lines if l.startswith(("[missing]", "[  drift]", "[    old]", "[ failed]", "[   stop]"))]
+    warn = [l for l in lines if l.startswith("[   warn]")]
+    if rc != 0 and not bad:
+        bad = [l for l in lines if l.startswith("[   todo]")] or ["yt-setup --check failed"]
+    return bad, warn
+
+
+def check_build():
+    rc, out = run("yt-build", "--check")
+    return [] if rc == 0 else [out]
+
+
+def check_codex():
+    if not os.path.isdir(os.path.join(core.HOME, ".codex")):
+        return []
+    problems = []
+    for name in sorted(os.listdir(core.REPO)):
+        if not os.path.isfile(os.path.join(core.REPO, name, ".codex-plugin", "plugin.json")):
+            continue
+        if not os.path.isfile(os.path.join(core.REPO, name, "harness.yaml")):
+            continue
+        problem = launch.codex_plugin_problem(name, core.load_harness(name).get("version"))
+        if problem:
+            problems.append(problem)
+    return problems
+
+
+def check_tasks():
+    notes = []
+    for task_id, e in sorted(core.load_sessions()["sessions"].items()):
+        status = core.read_status(core.task_dir(task_id)) or {}
+        state = status.get("state")
+        deadline = core.safe_deadline(e.get("deadline"))
+        if state == "waiting-human":
+            notes.append(f"{task_id} is waiting for a human: {str(status.get('question', ''))[:100]}")
+        elif state in ("running", "stale") and deadline and core.now() > deadline:
+            notes.append(f"{task_id} is past its deadline ({e.get('deadline')}); see `yt status`")
+    return notes
+
+
+def main(argv):
+    if any(a in ("-h", "--help") for a in argv):
+        print(__doc__)
+        return 0
+    quiet = "--quiet" in argv
+    setup_bad, setup_warn = check_setup()
+    results = [("setup", setup_bad), ("build", check_build()), ("codex", check_codex())]
+    notes = [("setup", w) for w in setup_warn] + [("tasks", n) for n in check_tasks()]
+    problems = sum(len(p) for _, p in results)
+    for name, found in results:
+        if not found and not quiet:
+            print(f"[ok] {name}")
+        for p in found:
+            print(f"[problem] {name}: {p}")
+    for name, n in notes:
+        print(f"[note] {name}: {n}")
+    if not problems:
+        print("yt-doctor: ok" + (f" ({len(notes)} note(s))" if notes else ""))
+    return 0 if not problems else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
