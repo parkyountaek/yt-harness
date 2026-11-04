@@ -126,6 +126,7 @@ yt answer read-001 "Include blank lines"    # or pass the human's answer through
 yt collect read-001                         # contract check, then print result.md
 yt forget read-001                          # drop a finished task from the list
 yt route read-check                         # which harness handles a task kind
+yt metrics --days 7                         # success rate, tokens, turns per harness and runtime
 yt harness list                             # harnesses, versions, on/off, Codex copies
 yt harness off yt-ops                       # refuse new sub-sessions of a harness
 ```
@@ -184,6 +185,16 @@ able to search and fetch the web, and the runtimes' web search runs on the
 model provider's side, so a host allowlist proxy would add upkeep without
 closing that path. What stays closed is everything that acts outside the
 sandbox: local service sockets, peer sessions, escape programs, MCP connectors.
+
+## Metrics
+
+When a task is collected or forgotten, `yt` reads that runtime's own session log
+and appends one line to `~/yt-local/data/metrics.jsonl`: tokens (input, cache read,
+cache write, output), turns, tool calls, large tool outputs, file rereads,
+compactions, subagents, and success. Numbers only, never content, in the same
+shape for Claude and Codex (`ytlib/metrics.py`, parity in `tests/metrics/run.py`).
+Main session only; subagent tokens are not counted on either side. A change is
+an improvement only if success holds while tokens or turns drop.
 
 ## Global setup on each runtime
 
@@ -258,6 +269,7 @@ yourself before every push.
 ```sh
 tests/repo-guard/run.sh      # repo guard accept/reject cases
 python3 tests/sandbox/run.py # sandbox allow/deny cases for both runtimes (macOS)
+python3 tests/metrics/run.py         # same session as Claude and Codex logs -> same metrics
 python3 tests/guard/run.py           # yt-guard decisions, Claude- and Codex-shaped events
 python3 tests/contract/run.py         # same scenarios on Claude and Codex, fake runner, no model
 python3 tests/contract/run.py --live  # plus one real task on both runtimes (model calls)

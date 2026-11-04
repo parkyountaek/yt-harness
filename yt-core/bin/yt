@@ -11,6 +11,7 @@ Usage:
   yt route [<task-kind>]                   show the task-kind -> harness routes (~/yt-local/routes.json)
   yt collect <task-id>                     check the result against the contract and print it
   yt answer <task-id> "<text>"             type the human's answer into a waiting-human session
+  yt metrics [--days N]                    per harness and runtime: tasks, success rate, tokens, turns
   yt harness list                          harnesses: version, on/off, Codex copy, routes
   yt harness on|off <name>                 allow or refuse new sub-sessions of a harness
 
@@ -27,6 +28,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
 from ytlib import core  # noqa: E402
 from ytlib import launch  # noqa: E402
+from ytlib import metrics  # noqa: E402
 from ytlib import parity  # noqa: E402
 from ytlib import runners  # noqa: E402
 
@@ -182,6 +184,7 @@ def cmd_forget(task_id):
             raise KeyError(task_id)
         if is_alive(e, runners.load(e["runner"])) or e.get("starting"):
             return fail(f"{task_id} is still running; stop it first")
+        metrics.record(task_id, e, core.read_status(core.task_dir(task_id)) or {})
         reg["sessions"].pop(task_id)
         core.save_sessions(reg)
     core.log_event("forget", taskId=task_id)
@@ -216,6 +219,7 @@ def cmd_collect(task_id):
         print(f"yt: {task_id} is {state}" + (f": {status.get('question')}" if status.get("question") else ""))
         return 3
     if state == "failed":
+        metrics.record(task_id, e, status)
         print(f"yt: {task_id} failed: {status.get('reason', 'no reason given')}")
         return 4
     problems = []
@@ -235,6 +239,7 @@ def cmd_collect(task_id):
         print(f"yt: {task_id} does not meet the result contract: " + "; ".join(problems), file=sys.stderr)
         return 1
     core.log_event("collect", taskId=task_id, bytes=size)
+    metrics.record(task_id, e, status)
     print(f"# {task_id} ({e['harness']} {status.get('harnessVersion', '')}, {e['runtime']}): done")
     print(f"# result: {path}\n")
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -254,6 +259,30 @@ def cmd_answer(task_id, text):
     rc = runner.send(e["runnerHandle"], text)
     core.log_event("answer", taskId=task_id, ok=rc == 0, chars=len(text))  # never the text itself
     return 0 if rc == 0 else fail("could not type into the session")
+
+
+def cmd_metrics(days=30):
+    since = core.now() - __import__("datetime").timedelta(days=days)
+    groups = {}
+    for d in metrics._lines(metrics.METRICS) if os.path.exists(metrics.METRICS) else []:
+        t = core.safe_deadline(d.get("at"))
+        if t and t >= since:
+            groups.setdefault((d["harness"], str(d.get("harnessVersion")), d["runtime"]), []).append(d)
+    if not groups:
+        print(f"no metrics in the last {days} days")
+        return 0
+    head = ("HARNESS", "VERSION", "RUNTIME", "TASKS", "SUCCESS", "AVG TOKENS", "AVG TURNS", "AVG TOOLS")
+    rows = []
+    for (h, v, rt), ds in sorted(groups.items()):
+        n = len(ds)
+        tokens = sum(sum(d["tokens"].values()) for d in ds) / n
+        rows.append((h, v, rt, str(n), f"{100 * sum(d['success'] for d in ds) / n:.0f}%", f"{tokens:,.0f}",
+                     f"{sum(d['turns'] for d in ds) / n:.1f}", f"{sum(d['toolCalls'] for d in ds) / n:.1f}"))
+    widths = [max(len(r[i]) for r in rows + [head]) for i in range(len(head))]
+    for r in [head] + rows:
+        print("  ".join(v.ljust(w) for v, w in zip(r, widths)).rstrip())
+    print(f"\nLast {days} days. A change counts as better only if success holds and tokens or turns drop.")
+    return 0
 
 
 def cmd_harness(action, name=None):
@@ -292,6 +321,8 @@ def main(argv):
             return cmd_status()
         if cmd == "resume" and len(rest) in (1, 3) and (len(rest) == 1 or rest[1] == "--deadline"):
             return cmd_resume(rest[0], rest[2] if len(rest) == 3 else None)
+        if cmd == "metrics" and (not rest or (len(rest) == 2 and rest[0] == "--days" and rest[1].isdigit())):
+            return cmd_metrics(int(rest[1]) if rest else 30)
         if cmd == "harness" and rest[:1] == ["list"] and len(rest) == 1:
             return cmd_harness("list")
         if cmd == "harness" and rest[:1] in (["on"], ["off"]) and len(rest) == 2:
