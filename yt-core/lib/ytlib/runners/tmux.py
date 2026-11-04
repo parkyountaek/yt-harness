@@ -24,9 +24,11 @@ def spawn(name, cwd, argv, env):
     handle = f"yt-{name}"
     if alive(handle):
         raise RuntimeError(f"tmux session {handle} already exists")
-    # tmux sets TMUX in every pane; drop it so the session has no handle on the tmux server.
+    # Start from an empty environment. The tmux server keeps the environment of whoever
+    # started it (e.g. a coordinator session's tokens and sockets, TMUX itself); none of
+    # that may reach the sub-session. TERM is the pane's own value.
     exports = " ".join(f"{k}={shlex.quote(v)}" for k, v in env.items())
-    command = f"env -u TMUX -u TMUX_PANE {exports} {shlex.join(argv)}"
+    command = f'env -i TERM="$TERM" {exports} {shlex.join(argv)}'
     r = _tmux("new-session", "-d", "-s", handle, "-x", "200", "-y", "50", "-c", cwd, command)
     if r.returncode != 0:
         raise RuntimeError(f"tmux new-session failed: {r.stderr.strip()}")

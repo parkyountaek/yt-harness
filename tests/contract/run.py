@@ -33,6 +33,9 @@ FIXED_DEADLINE = "2099-01-01T00:00:00+00:00"
 ROOT = os.path.realpath(tempfile.mkdtemp(prefix="ytcontract"))
 os.environ.update(YT_LOCAL=os.path.join(ROOT, "local"), YT_WORK=os.path.join(ROOT, "work"), YT_REPO=REPO)
 os.environ.pop("CODEX_HOME", None)
+# Pretend to run inside a coordinator session: none of this may reach a sub-session.
+os.environ.update(CLAUDECODE="1", CLAUDE_CODE_CHILD_SESSION="1", CLAUDE_CODE_MESSAGING_TOKEN="t",
+                  ORCA_AGENT_HOOK_TOKEN="t", AI_AGENT="x", TMUX="/tmp/x,1,0", SSH_AUTH_SOCK="/tmp/s")
 sys.path.insert(0, os.path.join(REPO, "yt-core", "lib"))
 from ytlib import core, launch, parity, runners  # noqa: E402
 from ytlib import platform as ytplatform  # noqa: E402
@@ -139,6 +142,8 @@ def scenario(rt):
     obs["wrapper"] = s["argv"][0]
     obs["prompt"] = s["argv"][-1]
     obs["env"] = sorted(s["env"])
+    obs["env leaks nothing"] = sorted(k for k in s["env"] if k.startswith(("CLAUDE", "CODEX_SESSION", "ORCA_", "TMUX"))
+                                      or k in ("AI_AGENT", "SSH_AUTH_SOCK")) == ["CLAUDE_CODE_TMPDIR"]
     obs["env.YT_TASK_DIR"] = s["env"]["YT_TASK_DIR"]
     obs["env.TMPDIR"] = s["env"]["TMPDIR"]
     obs["cwd"] = s["cwd"]
@@ -213,7 +218,7 @@ def scenario(rt):
 
 
 EXPECTED = {
-    "spawn": 0, "wrapper": "sandbox-exec", "initial state": "running", "has session id": True,
+    "spawn": 0, "env leaks nothing": True, "wrapper": "sandbox-exec", "initial state": "running", "has session id": True,
     "duplicate spawn": 1, "waiting without question": 1, "waiting": (0, "waiting-human"),
     "question kept": "Which file?", "back to running": (0, "running", False),
     "done without result": (1, "running"), "done": (0, "done"), "change after done": (1, "done"),

@@ -32,6 +32,28 @@ def runtime_argv(runtime, harness, out_dir, session_id, prompt, resume=False):
     return ["codex", *flags, prompt]
 
 
+# The only variables a sub-session inherits. Anything else (coordinator session ids,
+# messaging sockets and tokens, terminal-app hook tokens) would leak the coordinator
+# into the sub-session and make the two runtimes see different environments.
+PASS_ENV = ("HOME", "USER", "LOGNAME", "SHELL", "LANG", "TZ", "CODEX_HOME")
+PASS_ENV_PREFIX = ("LC_",)
+
+
+def session_env(task_dir, tmp_dir):
+    """The complete environment of a sub-session; identical for every runtime."""
+    extra = (core.read_json(core.CONFIG, {}) or {}).get("envPassthrough", [])
+    env = {k: v for k, v in os.environ.items()
+           if k in PASS_ENV or k.startswith(PASS_ENV_PREFIX) or k in extra}
+    py_bin = os.path.dirname(os.path.realpath(sys.executable))
+    env.update({
+        "YT_TASK_DIR": task_dir,
+        "TMPDIR": tmp_dir + "/",
+        "CLAUDE_CODE_TMPDIR": tmp_dir,   # Claude's Bash tool keeps its cwd file here, not in /tmp
+        "PATH": os.pathsep.join([os.path.join(core.CORE, "bin"), py_bin, os.environ.get("PATH", "")]),
+    })
+    return env
+
+
 STARTUP_GRACE = 4  # seconds a runtime must stay alive to count as started
 
 
@@ -91,9 +113,7 @@ def start(task_id, harness_name, harness, runtime, runner_name, session_id, resu
     os.makedirs(tmp_dir, exist_ok=True)
     wrapped = plat.sandbox_argv(policy, runtime, cmd, profile_dir=task_dir, extra_read=extra_read,
                                 tmp_dir=tmp_dir, cwd=out_dir)
-    py_bin = os.path.dirname(os.path.realpath(sys.executable))
-    env = {"YT_TASK_DIR": task_dir, "TMPDIR": tmp_dir + "/",
-           "PATH": os.pathsep.join([os.path.join(core.CORE, "bin"), py_bin, os.environ.get("PATH", "")])}
+    env = session_env(task_dir, tmp_dir)
     since = time.time() - 1
     handle = runner.spawn(task_id, out_dir, wrapped, env)
     if not confirm_started(runner, handle):
