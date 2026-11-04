@@ -29,6 +29,8 @@ def claude_log(path):
         {"type": "user", "message": {"content": [{"type": "tool_result", "content": BIG}]}},
         {"type": "system", "subtype": "turn_duration"},
         {"type": "system", "subtype": "compact_boundary"},
+        {"type": "user", "isMeta": True, "message": {"content": "skill text, not a prompt"}},
+        {"type": "user", "message": {"content": "the human's answer"}},
         {"type": "assistant", "message": {"id": "m2", "usage": {"input_tokens": 0, "output_tokens": 3}, "content": []}},
         {"type": "system", "subtype": "turn_duration"},
     ]

@@ -238,6 +238,12 @@ def scenario(rt):
     obs["concurrency"] = [spawn(f"slot{i}-{rt}", rt) for i in range(4)]
     stop_all()
     obs["forget stopped"] = (yt("forget", a), bool(entry(a)))
+    # headless runner: print/exec mode for start and resume, same session id
+    out = os.path.join(core.task_dir(a), "out")
+    start = launch.runtime_argv(rt, "yt-ops", out, "sid-1", "go", resume=False, interactive=False)
+    again = launch.runtime_argv(rt, "yt-ops", out, "sid-1", "go on", resume=True, interactive=False)
+    mode = (lambda argv: "-p" in argv) if rt == "claude" else (lambda argv: argv[:2] == ["codex", "exec"])
+    obs["headless argv"] = (mode(start), mode(again), "sid-1" in again, start[-1], again[-1])
     return obs
 
 
@@ -252,7 +258,8 @@ EXPECTED = {
     "resume uses same session": True, "resume keeps hooks off": True, "forget while alive": 1, "done without result.md": "failed",
     "unreadable status": "failed", "dirty out/": (1, False), "concurrency": [0, 0, 0, 2],
     "forget stopped": (0, False), "collect done": 0, "collect not finished": 3, "collect failed": 4,
-    "answer when not waiting": 1, "answer": (0, True), "route": (0, 1), "spawn refused when harness off": (1, False), "profile writes out/": True, "profile reads task": True,
+    "answer when not waiting": 1, "answer": (0, True), "route": (0, 1), "spawn refused when harness off": (1, False),
+    "headless argv": (True, True, True, "go", "go on"), "profile writes out/": True, "profile reads task": True,
     "profile denies escapes": True,
 }
 

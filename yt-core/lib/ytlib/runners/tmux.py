@@ -5,6 +5,7 @@ import subprocess
 import time
 
 NAME = "tmux"
+INTERACTIVE = True
 
 
 def _exact(handle):

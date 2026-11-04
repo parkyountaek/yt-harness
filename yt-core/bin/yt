@@ -72,6 +72,8 @@ def cmd_status():
         status = judge(task_id, e)
         alive = bool(e.get("runnerHandle")) and runners.load(e["runner"]).alive(e["runnerHandle"])
         note = str(status.get("question") or status.get("reason") or "")[:80]
+        if not alive and status.get("state") == "running" and e.get("runnerHandle"):
+            note = note or "run ended without reporting; check `yt attach`, then `yt resume`"
         rows.append((task_id, f"{e['harness']} {status.get('harnessVersion', '')}".strip(), e["runtime"],
                      status.get("state", "?"), "yes" if alive else "no", e.get("deadline", ""), note))
     if not rows:
@@ -99,6 +101,9 @@ def is_alive(e, runner):
 
 def cmd_attach(task_id):
     e, runner = entry_and_runner(task_id)
+    if not getattr(runner, "INTERACTIVE", True) and e.get("runnerHandle"):
+        core.log_event("attach", taskId=task_id)
+        return runner.attach(e["runnerHandle"])   # headless: show (and follow) the output log
     if not is_alive(e, runner):
         return fail(f"{task_id} is not running; use `yt resume {task_id}`")
     core.log_event("attach", taskId=task_id)
@@ -113,7 +118,8 @@ def cmd_stop(task_id):
     return rc
 
 
-def cmd_resume(task_id, deadline_arg=None):
+def cmd_resume(task_id, deadline_arg=None, answer=None):
+    """Restart a stopped session. With answer: the next headless run, carrying the human's answer."""
     task_dir = core.task_dir(task_id)
     drift = parity.problems()
     if drift:
@@ -129,6 +135,8 @@ def cmd_resume(task_id, deadline_arg=None):
         status = core.read_status(task_dir) or {}
         if status.get("state") in core.FINAL:
             return fail(f"{task_id} is already {status['state']}")
+        if answer is not None and status.get("state") != "waiting-human":
+            return fail(f"{task_id} is {status.get('state')}, not waiting-human")
         busy = sum(1 for other_id, o in reg["sessions"].items()
                    if other_id != task_id and (o.get("starting") or is_alive(o, runners.load(o["runner"]))))
         if busy >= core.MAX_CONCURRENT:
@@ -144,7 +152,10 @@ def cmd_resume(task_id, deadline_arg=None):
             if problem:
                 return fail(problem)
         try:
-            deadline = core.parse_deadline(deadline_arg or harness.get("deadlineDefault") or "2h")
+            if answer is not None and core.safe_deadline(e.get("deadline")):
+                deadline = core.safe_deadline(e["deadline"])   # answering does not extend the deadline
+            else:
+                deadline = core.parse_deadline(deadline_arg or harness.get("deadlineDefault") or "2h")
         except ValueError:
             return fail(f"bad deadline {deadline_arg!r}")
         e.update(starting=True, startedAt=core.iso(core.now()), runtimeSessionId=sid, deadline=core.iso(deadline))
@@ -152,7 +163,8 @@ def cmd_resume(task_id, deadline_arg=None):
 
     error, handle = None, None
     try:
-        handle, _ = launch.start(task_id, e["harness"], harness, e["runtime"], e["runner"], sid, resume=True)
+        handle, _ = launch.start(task_id, e["harness"], harness, e["runtime"], e["runner"], sid, resume=True,
+                                 answer=answer)
     except Exception as ex:  # noqa: BLE001
         error = str(ex) or ex.__class__.__name__
 
@@ -171,6 +183,10 @@ def cmd_resume(task_id, deadline_arg=None):
             status.pop("staleSince", None)
 
     core.update_status(task_dir, change)
+    if answer is not None:
+        core.log_event("answer", taskId=task_id, ok=True, chars=len(answer), runner=e["runner"])
+        print(f"yt: answer passed to {task_id} (new {e['runner']} run)")
+        return 0
     core.log_event("resume", taskId=task_id, runtime=e["runtime"])
     print(f"yt: {task_id} resumed ({e['runtime']}, handle {handle}, deadline {core.iso(deadline)})")
     return 0
@@ -249,6 +265,12 @@ def cmd_collect(task_id):
 
 def cmd_answer(task_id, text):
     e, runner = entry_and_runner(task_id)
+    if not text.strip():
+        return fail("empty answer")
+    if not getattr(runner, "INTERACTIVE", True):
+        if is_alive(e, runner):
+            return fail(f"{task_id} is still running; answer once it is waiting-human")
+        return cmd_resume(task_id, answer=text)
     if not is_alive(e, runner):
         return fail(f"{task_id} is not running; use `yt resume {task_id}` first")
     state = (core.read_status(core.task_dir(task_id)) or {}).get("state")

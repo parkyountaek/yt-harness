@@ -49,7 +49,7 @@ sandbox profile), not in runtime-specific features.
 |---|---|
 | `yt-core/` | Shared core plugin: `bin/` commands, `lib/ytlib/`, the coordinator skill, `deps.json` |
 | `yt-core/lib/ytlib/platform/` | One module per OS: package install and upgrade, sandbox backend |
-| `yt-core/lib/ytlib/runners/` | Runner adapters (`tmux` now; Orca later) |
+| `yt-core/lib/ytlib/runners/` | Runner adapters: `tmux` (default) and `headless` |
 | `yt-ops/` | First harness: read-only investigation |
 | `templates/harness.yaml` | Starting point for a new harness |
 | `.githooks/` | Repo guard (pre-commit and pre-push) |
@@ -146,6 +146,18 @@ yt-status waiting-human --question "Which branch should I compare?"
 yt-status done                     # out/result.md must exist
 yt-status failed --reason "Input file is missing"
 ```
+
+## Runners
+
+A runner starts and supervises the sandboxed runtime; pick it with `yt-spawn --runner`.
+
+| Runner | How it runs | Human in the loop |
+|---|---|---|
+| `tmux` (default) | interactive runtime in a detached tmux session | `yt attach` to type into it, or `yt answer` |
+| `headless` | `claude -p` / `codex exec`, one background process per run, no terminal | `yt answer` starts the next run on the same session with the answer; `yt attach` shows the output log |
+
+Both use the same work order, sandbox, environment, and state contract. Headless
+needs no tmux, so it also suits machines without a terminal multiplexer.
 
 ## Sandbox (macOS)
 

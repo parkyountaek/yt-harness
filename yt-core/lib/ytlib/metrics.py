@@ -118,14 +118,17 @@ def claude_tally(path):
                     inp = c.get("input") or {}
                     t.tool(c.get("name"), inp.get("command"), inp.get("file_path") if c.get("name") == "Read" else None)
         elif kind == "user":
-            for c in (d.get("message") or {}).get("content") or []:
+            content = (d.get("message") or {}).get("content")
+            if isinstance(content, str):
+                if not d.get("isMeta"):
+                    t.turns += 1   # a prompt: start, resume, or a human answer (both tmux and -p mode)
+                continue
+            for c in content or []:
                 if isinstance(c, dict) and c.get("type") == "tool_result":
                     t.output(_size(c.get("content")))
         elif kind == "system":
             sub = str(d.get("subtype", ""))
-            if sub == "turn_duration":
-                t.turns += 1
-            elif "compact" in sub:
+            if "compact" in sub:
                 t.compactions += 1
     for u in usage.values():
         t.tokens["input"] += u.get("input_tokens", 0)

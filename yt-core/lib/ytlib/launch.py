@@ -35,20 +35,29 @@ def codex_no_mcp():
     return flags
 
 
-def runtime_argv(runtime, harness, out_dir, session_id, prompt, resume=False):
+ANSWER_PROMPT = ("The human answered your question: {answer}\n"
+                 "Run `yt-status running`, then continue the work order in {task_dir}/TASK.md.")
+
+
+def runtime_argv(runtime, harness, out_dir, session_id, prompt, resume=False, interactive=True):
+    """Command line for one run. interactive=False is print/exec mode (headless runner)."""
     harness_path = core.harness_dir(harness)
     if runtime == "claude":
         sid = ["--resume", session_id] if resume else ["--session-id", session_id]
-        return ["claude", "--plugin-dir", harness_path, *CLAUDE_NO_HOOKS, *CLAUDE_NO_MCP, *sid,
-                "--dangerously-skip-permissions", prompt]
+        return ["claude", *([] if interactive else ["-p"]), "--plugin-dir", harness_path, *CLAUDE_NO_HOOKS,
+                *CLAUDE_NO_MCP, *sid, "--dangerously-skip-permissions", prompt]
     # Codex: the shared sandbox is the enforcement layer, so Codex's own sandbox is off
     # (the two cannot be nested). The harness plugin is installed disabled and enabled per run.
     if "." in out_dir:
         # Codex splits -c keys on dots, so the trust key would be misread.
         raise RuntimeError(f"task folder path must not contain '.': {out_dir}")
     flags = [*CODEX_NO_HOOKS, *codex_no_mcp(), "-c", f"plugins.{harness}@yt-harness.enabled=true",
-             "-c", f"projects.{out_dir}.trust_level=trusted",
-             "--sandbox", "danger-full-access", "--ask-for-approval", "never"]
+             "-c", f"projects.{out_dir}.trust_level=trusted"]
+    if not interactive:
+        # exec and exec resume take the same settings as -c values.
+        flags += ["-c", 'sandbox_mode="danger-full-access"', "-c", 'approval_policy="never"', "--skip-git-repo-check"]
+        return ["codex", "exec", *(["resume"] if resume else []), *flags, *([session_id] if resume else []), prompt]
+    flags += ["--sandbox", "danger-full-access", "--ask-for-approval", "never"]
     if resume:
         return ["codex", "resume", *flags, session_id, prompt]
     return ["codex", *flags, prompt]
@@ -91,13 +100,18 @@ def codex_plugin_problem(harness_name, version):
 
 
 def confirm_started(runner, handle):
-    """A runner can start a terminal whose runtime exits at once; require it to stay up."""
+    """A runner can start a terminal whose runtime exits at once; require it to stay up.
+
+    A headless run may finish within the grace period; then it must have exited 0.
+    """
     end = time.time() + STARTUP_GRACE
     while time.time() < end:
         if not runner.alive(handle):
-            return False
+            break
         time.sleep(0.5)
-    return runner.alive(handle)
+    if runner.alive(handle):
+        return True
+    return getattr(runner, "INTERACTIVE", True) is False and runner.exit_code(handle) == 0
 
 
 def find_codex_session(out_dir, since, timeout=30, scan=20):
@@ -121,14 +135,21 @@ def find_codex_session(out_dir, since, timeout=30, scan=20):
     return None
 
 
-def start(task_id, harness_name, harness, runtime, runner_name, session_id, resume=False):
-    """Wrap the runtime in the shared sandbox and start it with the runner. Returns (handle, session_id)."""
+def start(task_id, harness_name, harness, runtime, runner_name, session_id, resume=False, answer=None):
+    """Wrap the runtime in the shared sandbox and start it with the runner. Returns (handle, session_id).
+
+    answer: resume with the human's answer as the prompt (headless runner).
+    """
     plat = ytplatform.load()
     runner = runners.load(runner_name)
     task_dir = core.task_dir(task_id)
     out_dir = os.path.join(task_dir, "out")
-    prompt = (RESUME_PROMPT if resume else START_PROMPT).format(task_dir=task_dir)
-    cmd = runtime_argv(runtime, harness_name, out_dir, session_id, prompt, resume)
+    if answer is not None:
+        prompt = ANSWER_PROMPT.format(answer=answer, task_dir=task_dir)
+    else:
+        prompt = (RESUME_PROMPT if resume else START_PROMPT).format(task_dir=task_dir)
+    interactive = getattr(runner, "INTERACTIVE", True)
+    cmd = runtime_argv(runtime, harness_name, out_dir, session_id, prompt, resume, interactive)
     policy = core.resolve_policy(harness, task_dir)
     # The session also needs to read yt-core (for yt-status), the harness, and the Python install.
     extra_read = [core.CORE, core.harness_dir(harness_name), os.path.realpath(sys.base_prefix)]
