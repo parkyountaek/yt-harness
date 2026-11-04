@@ -5,6 +5,7 @@
 .githooks/
 .gitignore
 AGENTS.md
+LICENSE
 README.md
 allowlist.txt
 adapters/
