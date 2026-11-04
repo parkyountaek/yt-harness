@@ -7,3 +7,5 @@ session-settings.json
 *.sb.generated
 .DS_Store
 __pycache__/
+*.bwrap.generated
+headless.log

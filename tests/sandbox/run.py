@@ -24,8 +24,12 @@ SHARED = "/Users/Shared"
 
 def main():
     plat = ytplatform.load()
+    if plat.NAME == "linux":
+        import runpy
+        return runpy.run_path(os.path.join(os.path.dirname(os.path.realpath(__file__)), "linux.py"),
+                              run_name="linux_cases")["main"]()
     if plat.OS_ID != "macos":
-        print(f"skip: sandbox backend for {plat.OS_ID} is not implemented")
+        print(f"skip: no sandbox backend for {plat.OS_ID}")
         return 0
     work = os.path.join(HOME, "yt-work", f"sandbox-test-{os.getpid()}")
     task_tmp = os.path.join(work, "tmp")

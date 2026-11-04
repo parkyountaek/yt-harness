@@ -41,6 +41,9 @@ sys.path.insert(0, os.path.join(REPO, "yt-core", "lib"))
 from ytlib import core, launch, parity, runners  # noqa: E402
 from ytlib import platform as ytplatform  # noqa: E402
 
+PLATFORM = ytplatform.load().NAME
+WRAPPER = {"macos": "sandbox-exec", "linux": "bwrap"}.get(PLATFORM)
+
 results = {"pass": 0, "fail": 0}
 
 
@@ -157,11 +160,18 @@ def scenario(rt):
     obs["env.YT_TASK_DIR"] = s["env"]["YT_TASK_DIR"]
     obs["env.TMPDIR"] = s["env"]["TMPDIR"]
     obs["cwd"] = s["cwd"]
-    with open(os.path.join(task, f"sandbox-{rt}.sb.generated"), encoding="utf-8") as fh:
-        profile = fh.read()
-    obs["profile writes out/"] = f'(subpath "{task}/out")' in profile
-    obs["profile reads task"] = f'(subpath "{task}")' in profile
-    obs["profile denies escapes"] = "(deny process-exec" in profile and "(deny appleevent-send)" in profile
+    if PLATFORM == "linux":
+        with open(os.path.join(task, f"sandbox-{rt}.bwrap.generated"), encoding="utf-8") as fh:
+            profile = fh.read()
+        obs["profile writes out/"] = f"--bind\n{task}/out\n{task}/out\n" in profile
+        obs["profile reads task"] = f"--ro-bind-try\n{task}\n{task}\n" in profile
+        obs["profile denies escapes"] = "--new-session" in profile and "--tmpfs\n/tmp\n" in profile
+    else:
+        with open(os.path.join(task, f"sandbox-{rt}.sb.generated"), encoding="utf-8") as fh:
+            profile = fh.read()
+        obs["profile writes out/"] = f'(subpath "{task}/out")' in profile
+        obs["profile reads task"] = f'(subpath "{task}")' in profile
+        obs["profile denies escapes"] = "(deny process-exec" in profile and "(deny appleevent-send)" in profile
     obs["initial state"] = state(a)
     obs["has session id"] = bool(entry(a).get("runtimeSessionId"))
     obs["duplicate spawn"] = spawn(a, rt)
@@ -248,7 +258,7 @@ def scenario(rt):
 
 
 EXPECTED = {
-    "spawn": 0, "env leaks nothing": True, "user hooks off": True, "web tools on": True, "MCP and connectors off": True, "wrapper": "sandbox-exec", "initial state": "running", "has session id": True,
+    "spawn": 0, "env leaks nothing": True, "user hooks off": True, "wrapper": WRAPPER, "web tools on": True, "MCP and connectors off": True, "initial state": "running", "has session id": True,
     "duplicate spawn": 1, "waiting without question": 1, "waiting": (0, "waiting-human"),
     "question kept": "Which file?", "back to running": (0, "running", False),
     "done without result": (1, "running"), "done": (0, "done"), "change after done": (1, "done"),

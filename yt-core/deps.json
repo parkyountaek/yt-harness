@@ -117,7 +117,7 @@
         "linux",
         "wsl"
       ],
-      "purpose": "shared sandbox backend on Linux and WSL2 (backend not implemented yet)",
+      "purpose": "shared sandbox backend on Linux and WSL2",
       "install": {
         "apt": "bubblewrap",
         "dnf": "bubblewrap"

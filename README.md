@@ -104,10 +104,15 @@ caught before the next commit.
 | Platform | Packages | Sub-sessions |
 |---|---|---|
 | macOS | Homebrew | Yes: `sandbox-exec` |
-| Linux, WSL2 | apt or dnf | Not yet: the bubblewrap backend is a stub |
+| Linux, WSL2 | apt or dnf | Yes: bubblewrap (sandbox cases verified in a container; Claude and Codex not yet run on Linux) |
 | Windows | winget or Scoop | No: setup and commits work. Run sub-sessions inside WSL2 |
 
-Linux and Windows have not been verified on real machines yet.
+Linux and Windows have not been verified on real machines yet. On Linux the
+sandbox builds the filesystem view instead of denying paths: `/` read-only, `$HOME`,
+`/home`, `/tmp`, `/run` as empty tmpfs, and only the task folder, yt-core, the
+harness, and the runtime dirs mounted back; escape programs are covered with
+`/dev/null`, and the PID namespace and terminal session are separate. Abstract
+unix sockets are not isolated (that would need a network namespace).
 
 ## Usage
 
@@ -280,7 +285,7 @@ yourself before every push.
 
 ```sh
 tests/repo-guard/run.sh      # repo guard accept/reject cases
-python3 tests/sandbox/run.py # sandbox allow/deny cases for both runtimes (macOS)
+python3 tests/sandbox/run.py # sandbox allow/deny cases for both runtimes (macOS; Linux via linux.py)
 python3 tests/metrics/run.py         # same session as Claude and Codex logs -> same metrics
 python3 tests/guard/run.py           # yt-guard decisions, Claude- and Codex-shaped events
 python3 tests/contract/run.py         # same scenarios on Claude and Codex, fake runner, no model
