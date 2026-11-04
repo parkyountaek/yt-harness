@@ -31,6 +31,7 @@ RUNTIMES = ("claude", "codex")
 FIXED_DEADLINE = "2099-01-01T00:00:00+00:00"
 
 ROOT = os.path.realpath(tempfile.mkdtemp(prefix="ytcontract"))
+REAL_ENV = dict(os.environ)
 os.environ.update(YT_LOCAL=os.path.join(ROOT, "local"), YT_WORK=os.path.join(ROOT, "work"), YT_REPO=REPO)
 os.environ.pop("CODEX_HOME", None)
 # Pretend to run inside a coordinator session: none of this may reach a sub-session.
@@ -313,7 +314,7 @@ def test_parity():
 
 def test_live():
     work = os.path.expanduser("~/yt-work")
-    env = {k: v for k, v in os.environ.items() if k not in ("YT_LOCAL", "YT_WORK", "YT_REPO")}
+    env = REAL_ENV   # the machine's real environment, without the fakes set for the scenarios
     run = lambda *a: subprocess.run([os.path.join(BIN, a[0]), *a[1:]], env=env, capture_output=True, text=True)  # noqa: E731
     results_md, states = {}, {}
     for rt in RUNTIMES:
