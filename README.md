@@ -115,10 +115,32 @@ harness, and the runtime dirs mounted back; escape programs are covered with
 `/dev/null`, and the PID namespace and terminal session are separate. Abstract
 unix sockets are not isolated (that would need a network namespace).
 
+### Moving to another machine
+
+The repository carries the skeleton; the local layer moves by hand, never through
+GitHub.
+
+```sh
+yt-export [~/yt-local-export.tar.gz] [--data]   # on the old machine
+yt-import <archive> --dry-run                   # on the new machine: show the merge
+yt-import <archive>                             # merge, backing up what changes
+yt-core/bin/yt-setup && yt-doctor
+```
+
+The archive holds `config.json` (without `repo`), `routes.json`, `active.json`, and
+the blocked lists; `--data` adds `metrics`, `evals`, and `events`. The session list,
+runner state, and task folders stay behind. Home paths are written as `~/...`.
+Import merges: routes by task kind and vaults by name take the archive's value,
+local entries stay, and list and record lines are added once. The whole archive is
+refused if it holds an unexpected file or fails its checksums. It holds your blocked
+terms, so it is written with mode 600, never inside the repository; delete it after
+the import.
+
 ## Usage
 
-`yt-setup` links `yt`, `yt-spawn`, `yt-setup`, `yt-build`, `yt-doctor`, and `yt-update` into
-`~/.local/bin` (it warns when that is not on `PATH`).
+`yt-setup` links the `yt` commands (`yt`, `yt-spawn`, `yt-doctor`, `yt-update`,
+`yt-mask`, `yt-export`, `yt-import`, ...) into `~/.local/bin` (it warns when that is
+not on `PATH`).
 
 ```sh
 mkdir -p ~/yt-work/read-001/in
@@ -319,6 +341,7 @@ yourself before every push.
 tests/repo-guard/run.sh      # repo guard accept/reject cases
 python3 tests/sandbox/run.py # sandbox allow/deny cases for both runtimes (macOS; Linux via linux.py)
 python3 tests/lab/run.py             # roadmap frameworks: improve, eval, candidates, cards, panel
+python3 tests/transfer/run.py        # yt-export / yt-import: packing, merging, rejection
 python3 tests/metrics/run.py         # same session as Claude and Codex logs -> same metrics
 python3 tests/guard/run.py           # yt-guard decisions, Claude- and Codex-shaped events
 python3 tests/contract/run.py         # same scenarios on Claude and Codex, fake runner, no model
