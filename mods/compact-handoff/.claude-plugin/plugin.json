@@ -1,0 +1,23 @@
+{
+  "name": "compact-handoff",
+  "version": "0.2.0",
+  "description": "Shows task progress above the prompt and leaves a note so work carries on after the conversation is compacted (/work, /handoff)",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "parkyountaek"
+  },
+  "userConfig": {
+    "band": {
+      "type": "boolean",
+      "title": "Task progress line",
+      "description": "When there is a task list, shows one line above the prompt: '▶ 2/5 current task'. When off, /work still opens the summary.",
+      "default": true
+    },
+    "handoff": {
+      "type": "boolean",
+      "title": "Handoff note at compaction",
+      "description": "When a long conversation is compacted automatically, leaves a note of requests, tasks and edited files so the work is not lost.",
+      "default": true
+    }
+  }
+}

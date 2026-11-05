@@ -119,6 +119,12 @@ def entry(task_id):
     return core.load_sessions()["sessions"].get(task_id, {})
 
 
+def hooks_off(argv):
+    """Claude: the --settings value turns all hooks off (it may also carry env)."""
+    i = argv.index("--settings") if "--settings" in argv else -1
+    return i >= 0 and json.loads(argv[i + 1]).get("disableAllHooks") is True
+
+
 def last_session(task_id):
     return [s for s in fake.sessions.values() if s["name"] == task_id][-1]
 
@@ -151,7 +157,7 @@ def scenario(rt):
         and s["env"].get("ENABLE_CLAUDEAI_MCP_SERVERS") == "false"
     # Web search and fetch must stay available in sub-sessions (subagents use them).
     obs["web tools on"] = not any("WebSearch" in a or "WebFetch" in a or "web_search" in a for a in s["argv"])
-    obs["user hooks off"] = ('{"disableAllHooks": true}' in s["argv"]) if rt == "claude" \
+    obs["user hooks off"] = hooks_off(s["argv"]) if rt == "claude" \
         else ("features.hooks=false" in s["argv"])
     obs["prompt"] = s["argv"][-1]
     obs["env"] = sorted(s["env"])
@@ -216,7 +222,7 @@ def scenario(rt):
     r = last_session(c)
     sid = entry(c)["runtimeSessionId"]
     obs["resume prompt"] = r["argv"][-1]
-    obs["resume keeps hooks off"] = ('{"disableAllHooks": true}' in r["argv"]) if rt == "claude" \
+    obs["resume keeps hooks off"] = hooks_off(r["argv"]) if rt == "claude" \
         else ("features.hooks=false" in r["argv"])
     obs["resume uses same session"] = sid in r["argv"] and (
         "--resume" in r["argv"] if rt == "claude" else "resume" in r["argv"])
@@ -377,6 +383,21 @@ def test_parity():
     with open(os.path.join(override, ".codex", "AGENTS.override.md"), "w", encoding="utf-8") as fh:
         fh.write(md)
     check("parity: AGENTS.override.md wins over AGENTS.md", real.problems(override, require_both=False) == [])
+
+    # Interface mods (mods/) are Claude-only display; sub-sessions drop them, parity skips them.
+    mod = os.path.join(core.MODS, "token-usage")
+    with_mod = {"env": {"CLAUDE_CODE_PLUGIN_DIRS": os.pathsep.join(["/x/yt-core", mod])}}
+    home = fake_home(md, md, with_mod, None, toml)
+    check("parity: interface mods are not drift", real.problems(home, require_both=False) == [],
+          real.problems(home, require_both=False))
+    stray = {"env": {"CLAUDE_CODE_PLUGIN_DIRS": "/x/yt-core:/elsewhere/token-usage"}}
+    check("parity: a plugin dir outside mods/ still counts",
+          len(real.problems(fake_home(md, md, stray, None, toml), require_both=False)) == 1)
+    settings = json.loads(launch.claude_no_hooks(home)[1])
+    check("sub-session: interface mods dropped, other plugin dirs kept",
+          settings == {"disableAllHooks": True, "env": {"CLAUDE_CODE_PLUGIN_DIRS": "/x/yt-core"}}, settings)
+    settings = json.loads(launch.claude_no_hooks(fake_home(md, md, linked, None, toml))[1])
+    check("sub-session: no override when no mod is linked", settings == {"disableAllHooks": True}, settings)
 
 
 # ---------- live ----------

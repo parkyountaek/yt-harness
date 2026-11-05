@@ -221,6 +221,26 @@ def harness_names():
                   and os.path.isfile(os.path.join(REPO, d, "harness.yaml")))
 
 
+MODS = os.path.join(REPO, "mods")
+
+
+def mod_dirs():
+    """Claude interface mods in this checkout (mods/<name>/.claude-plugin/plugin.json).
+
+    Mods are display and convenience for the human's own Claude sessions. They are not
+    harnesses: they never load in sub-sessions and are left out of the parity check.
+    """
+    if not os.path.isdir(MODS):
+        return []
+    return sorted(os.path.join(MODS, d) for d in os.listdir(MODS)
+                  if os.path.isfile(os.path.join(MODS, d, ".claude-plugin", "plugin.json")))
+
+
+def is_mod_dir(path):
+    mods = os.path.realpath(MODS).rstrip("/") + "/"
+    return os.path.realpath(os.path.expanduser(path)).startswith(mods)
+
+
 def disabled_harnesses():
     return set((read_json(CONFIG, {}) or {}).get("disabledHarnesses", []))
 

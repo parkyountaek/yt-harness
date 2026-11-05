@@ -1,0 +1,54 @@
+{
+  "name": "token-usage",
+  "version": "0.2.0",
+  "description": "One line above the prompt: context use, usage limits, main and subagent models with effort. Click a subagent name to open its work pane",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "parkyountaek"
+  },
+  "userConfig": {
+    "band": {
+      "type": "boolean",
+      "title": "Usage line above the prompt",
+      "description": "Shows context (conversation memory) use, usage limits and models in one line above the prompt. When off, /token-usage still opens the details.",
+      "default": true
+    },
+    "resetTimes": {
+      "type": "boolean",
+      "title": "Usage limit reset times",
+      "description": "Adds the time left until the 5h and 7d usage limits refill (↻2h).",
+      "default": false
+    },
+    "agentRows": {
+      "type": "string",
+      "title": "Subagent rows",
+      "description": "How many subagents get their own row above the prompt. The rest fold into '+N more'.",
+      "default": "5",
+      "options": [
+        "3",
+        "5",
+        "8",
+        "off"
+      ]
+    },
+    "agentActivity": {
+      "type": "boolean",
+      "title": "What subagents are looking at",
+      "description": "Shows the last file opened or command run at the end of each subagent row.",
+      "default": true
+    },
+    "theme": {
+      "type": "string",
+      "title": "Color theme",
+      "description": "'theme file' uses the theme picked with /token-usage theme (mods-theme.json).",
+      "default": "theme file",
+      "options": [
+        "theme file",
+        "default",
+        "colorblind",
+        "ocean",
+        "vivid"
+      ]
+    }
+  }
+}

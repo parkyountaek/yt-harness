@@ -10,13 +10,17 @@ Checked:
                 or ~/.codex/AGENTS.md (+ instruction keys in config.toml): same text
   hooks         not compared: sub-sessions start with user-level hooks disabled on both
                 runtimes (see launch.runtime_argv); reported by claude_side/codex_side only
-  plugins       globally enabled plugins: same names on both sides
+  plugins       globally enabled plugins: same names on both sides. The human's Claude
+                interface mods (mods/ in this checkout) are left out: sub-sessions drop
+                them (launch.claude_no_hooks), so they never reach a work order
 """
 import glob
 import json
 import os
 import re
 import shutil
+
+from . import core
 
 try:
     import tomllib
@@ -77,7 +81,7 @@ def claude_side(home=HOME):
         settings = {}
     plugins = {k.split("@")[0] for k, v in (settings.get("enabledPlugins") or {}).items() if v}
     dirs = (settings.get("env") or {}).get("CLAUDE_CODE_PLUGIN_DIRS", "")
-    plugins |= {os.path.basename(d.rstrip("/")) for d in dirs.split(os.pathsep) if d}
+    plugins |= {os.path.basename(d.rstrip("/")) for d in dirs.split(os.pathsep) if d and not core.is_mod_dir(d)}
     return {"instructions": _norm("\n".join(p for p in parts if p)),
             "hooks": sorted((settings.get("hooks") or {}).keys()),
             "plugins": plugins,

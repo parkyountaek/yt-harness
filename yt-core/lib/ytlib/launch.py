@@ -18,8 +18,20 @@ RESUME_PROMPT = ("You were stopped and resumed. Re-read {task_dir}/TASK.md and {
 # User-level hooks are off in every sub-session, for both runtimes: they belong to the
 # human's own setup (e.g. a terminal app rewrites them), would run in one runtime only,
 # and could run code outside the sandbox's intent. Harness rules live in neutral layers.
-CLAUDE_NO_HOOKS = ["--settings", '{"disableAllHooks": true}']
 CODEX_NO_HOOKS = ["-c", "features.hooks=false"]
+
+
+def claude_no_hooks(home=None):
+    """--settings for a Claude sub-session: user hooks off, and the human's interface mods
+    (mods/) dropped from the plugin dirs. Flag settings outrank ~/.claude/settings.json, and
+    its env value is what loads the mods, so a process env override would not be enough."""
+    settings = {"disableAllHooks": True}
+    path = os.path.join(home or core.HOME, ".claude", "settings.json")
+    dirs = ((core.read_json(path, {}) or {}).get("env") or {}).get("CLAUDE_CODE_PLUGIN_DIRS", "")
+    kept = [d for d in dirs.split(os.pathsep) if d and not core.is_mod_dir(d)]
+    if dirs and kept != [d for d in dirs.split(os.pathsep) if d]:
+        settings["env"] = {"CLAUDE_CODE_PLUGIN_DIRS": os.pathsep.join(kept)}
+    return ["--settings", json.dumps(settings)]
 
 # MCP servers and connectors (Gmail, Drive, Slack, Trello, ...) are off in every
 # sub-session: they are channels that move task data to outside services. Claude:
@@ -44,7 +56,7 @@ def runtime_argv(runtime, harness, out_dir, session_id, prompt, resume=False, in
     harness_path = core.harness_dir(harness)
     if runtime == "claude":
         sid = ["--resume", session_id] if resume else ["--session-id", session_id]
-        return ["claude", *([] if interactive else ["-p"]), "--plugin-dir", harness_path, *CLAUDE_NO_HOOKS,
+        return ["claude", *([] if interactive else ["-p"]), "--plugin-dir", harness_path, *claude_no_hooks(),
                 *CLAUDE_NO_MCP, *sid, "--dangerously-skip-permissions", prompt]
     # Codex: the shared sandbox is the enforcement layer, so Codex's own sandbox is off
     # (the two cannot be nested). The harness plugin is installed disabled and enabled per run.

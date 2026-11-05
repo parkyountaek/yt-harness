@@ -12,7 +12,9 @@ Steps:
   1. Install missing tools listed in yt-core/deps.json (per-OS package names)
   2. Enable the repo git hooks (core.hooksPath = .githooks)
   3. Create the local layer ~/yt-local/ ($YT_LOCAL overrides; never committed)
-  4. Link yt-core for Claude (CLAUDE_CODE_PLUGIN_DIRS) and install it for Codex
+  4. Link yt-core for Claude (CLAUDE_CODE_PLUGIN_DIRS) and install it for Codex; link the
+     Claude interface mods in mods/ (theme file ~/yt-local/mods-theme.json; "mods": false
+     in ~/yt-local/config.json leaves them out)
   5. Link the yt commands (yt, yt-spawn, yt-doctor, yt-export, yt-import, ...) into ~/.local/bin
   6. Check that Claude and Codex global setup match (instructions, plugins; user hooks are off in sub-sessions);
      report only, never edits ~/.claude or ~/.codex instruction files
@@ -30,6 +32,7 @@ import sys
 CORE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 REPO = os.path.dirname(CORE)
 sys.path.insert(0, os.path.join(CORE, "lib"))
+from ytlib import core  # noqa: E402
 from ytlib import parity  # noqa: E402
 from ytlib import platform as ytplatform  # noqa: E402
 
@@ -216,14 +219,26 @@ def step_claude(check_only):
             data = json.loads(f.read() or "{}")
     env = data.setdefault("env", {})
     dirs = [d for d in env.get("CLAUDE_CODE_PLUGIN_DIRS", "").split(os.pathsep) if d]
-    if CORE in dirs:
-        say("ok", "Claude: yt-core linked")
+    # Interface mods (mods/) load in the human's Claude sessions only; "mods": false in
+    # ~/yt-local/config.json keeps them out. Other entries in the list are left alone.
+    want_mods = (core.read_json(core.CONFIG, {}) or {}).get("mods", True) is not False
+    mods = core.mod_dirs() if want_mods else []
+    theme = os.path.join(LOCAL, "mods-theme.json")
+    wanted = [d for d in dirs if not core.is_mod_dir(d) or d in mods]
+    wanted += [d for d in [CORE] + mods if d not in wanted]
+    theme_ok = not mods or env.get("CLAUDE_MODS_THEME_FILE") == theme
+    if wanted == dirs and theme_ok:
+        say("ok", "Claude: yt-core linked" + (f", mods: {', '.join(os.path.basename(m) for m in mods)}" if mods else ""))
         return True
     if check_only:
-        say("missing", "Claude: yt-core not linked")
+        say("missing", "Claude: yt-core or the interface mods not linked")
         return False
-    env["CLAUDE_CODE_PLUGIN_DIRS"] = os.pathsep.join(dirs + [CORE])
+    env["CLAUDE_CODE_PLUGIN_DIRS"] = os.pathsep.join(wanted)
+    if mods:
+        env["CLAUDE_MODS_THEME_FILE"] = theme
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.exists(path):
+        shutil.copy2(path, path + ".bak-yt-setup")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
         f.write("\n")

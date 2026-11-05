@@ -1,0 +1,13 @@
+{
+  "name": "work-alerts",
+  "version": "0.2.0",
+  "description": "Alerts for long tasks finishing, failed checks, subagents finishing, and context or usage limit warnings, by popup, sound and macOS notification",
+  "author": { "name": "parkyountaek" },
+  "userConfig": {
+    "enabled": { "type": "boolean", "title": "Work alerts", "description": "Off stops all the alerts below.", "default": true },
+    "sound": { "type": "boolean", "title": "Alert sound", "description": "Plays a short sound with each alert. /task-alert also turns it on and off.", "default": true },
+    "desktop": { "type": "boolean", "title": "macOS popup", "description": "Shows a notification at the top right when a long task finishes or stops.", "default": true },
+    "longTurn": { "type": "string", "title": "Long task threshold", "description": "Alerts when a reply that took longer than this finishes.", "default": "60s", "options": ["30s", "60s", "2m", "5m"] },
+    "subagent": { "type": "string", "title": "Subagent done alerts", "description": "How to alert when a subagent finishes. When several finish together, the sound plays once.", "default": "popup only", "options": ["popup only", "popup and sound", "off"] }
+  }
+}

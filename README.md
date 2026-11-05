@@ -182,6 +182,27 @@ yt-status done                     # out/result.md must exist
 yt-status failed --reason "Input file is missing"
 ```
 
+## Interface mods (Claude)
+
+`mods/` holds three Claude Code mods (function-hook plugins) for the human's own
+sessions. They change what the human sees, not what a sub-session does.
+
+| Mod | What it does | Commands |
+|---|---|---|
+| `token-usage` | One line above the input: context use, 5-hour and 7-day limits, model and effort; one row per running subagent, click to open its transcript | `/token-usage`, `/token-usage theme` |
+| `work-alerts` | Popup, sound, and macOS notification when a long turn ends, a check fails, a subagent finishes, or a limit is near | `/alerts`, `/task-alert` |
+| `compact-handoff` | A task-progress line, and a handoff note so work continues after compaction | `/work`, `/handoff` |
+
+`yt-setup` adds them to `CLAUDE_CODE_PLUGIN_DIRS` next to yt-core and points
+`CLAUDE_MODS_THEME_FILE` at `~/yt-local/mods-theme.json`; `"mods": false` in
+`~/yt-local/config.json` leaves them out. Settings are in `/config`.
+
+They stay out of sub-sessions twice over: the sub-session's `--settings` drops
+`mods/` from the plugin dirs (flag settings outrank `~/.claude/settings.json`), and
+`disableAllHooks` stops any hooks module from loading. Codex has no equivalent
+interface, so the parity check leaves `mods/` out. `tests/mods/run.sh` runs each
+mod's tests and `claude plugin validate`.
+
 ## Knowledge vault (`yt-wiki`)
 
 A `folderKind: vault` harness works inside a named folder. The vaults are listed
@@ -342,6 +363,7 @@ tests/repo-guard/run.sh      # repo guard accept/reject cases
 python3 tests/sandbox/run.py # sandbox allow/deny cases for both runtimes (macOS; Linux via linux.py)
 python3 tests/lab/run.py             # roadmap frameworks: improve, eval, candidates, cards, panel
 python3 tests/transfer/run.py        # yt-export / yt-import: packing, merging, rejection
+tests/mods/run.sh                    # interface mods: their own tests and plugin validate
 python3 tests/metrics/run.py         # same session as Claude and Codex logs -> same metrics
 python3 tests/guard/run.py           # yt-guard decisions, Claude- and Codex-shaped events
 python3 tests/contract/run.py         # same scenarios on Claude and Codex, fake runner, no model

@@ -9,3 +9,6 @@ session-settings.json
 __pycache__/
 *.bwrap.generated
 headless.log
+# Written by Claude Code when a mod loads.
+mods/*/.claude-plugin/types/
+node_modules/
