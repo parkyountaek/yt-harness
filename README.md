@@ -212,8 +212,10 @@ same way (the `panel` skill gives Codex the same overview as text).
 For Codex, or any terminal, `yt watch` shows the same tasks live and posts a desktop
 notice (`osascript` on macOS, `notify-send` on Linux) when one needs you; it shares
 the told file with `work-alerts`, so running both never tells a need twice. Codex's
-own status line covers context and limits: `/statusline`, or in
-`~/.codex/config.toml`:
+own status line covers context and limits. `yt-setup` sets it in
+`~/.codex/config.toml` while the line is unset or still Codex's default (a line you
+chose with `/statusline` is left alone; `"codexStatusLine": false` in
+`~/yt-local/config.json` turns this off):
 
 ```toml
 [tui]
@@ -391,6 +393,7 @@ python3 tests/sandbox/run.py # sandbox allow/deny cases for both runtimes (macOS
 python3 tests/lab/run.py             # roadmap frameworks: improve, eval, candidates, cards, panel
 python3 tests/transfer/run.py        # yt-export / yt-import: packing, merging, rejection
 tests/mods/run.sh                    # interface mods: their own tests and plugin validate
+python3 tests/setup/run.py           # yt-setup's Codex status line step: sets, leaves, refuses
 python3 tests/metrics/run.py         # same session as Claude and Codex logs -> same metrics
 python3 tests/guard/run.py           # yt-guard decisions, Claude- and Codex-shaped events
 python3 tests/contract/run.py         # same scenarios on Claude and Codex, fake runner, no model

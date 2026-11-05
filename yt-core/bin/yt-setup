@@ -12,7 +12,8 @@ Steps:
   1. Install missing tools listed in yt-core/deps.json (per-OS package names)
   2. Enable the repo git hooks (core.hooksPath = .githooks)
   3. Create the local layer ~/yt-local/ ($YT_LOCAL overrides; never committed)
-  4. Link yt-core for Claude (CLAUDE_CODE_PLUGIN_DIRS) and install it for Codex; link the
+  4. Link yt-core for Claude (CLAUDE_CODE_PLUGIN_DIRS) and install it for Codex; set the
+     Codex status line to show context and limits while it is unset or the default; link the
      Claude interface mods in mods/ (theme file ~/yt-local/mods-theme.json; "mods": false
      in ~/yt-local/config.json leaves them out)
   5. Link the yt commands (yt, yt-spawn, yt-doctor, yt-export, yt-import, ...) into ~/.local/bin
@@ -35,6 +36,7 @@ sys.path.insert(0, os.path.join(CORE, "lib"))
 from ytlib import core  # noqa: E402
 from ytlib import parity  # noqa: E402
 from ytlib import platform as ytplatform  # noqa: E402
+from ytlib import statusline  # noqa: E402
 
 HOME = os.path.expanduser("~")
 LOCAL = os.path.expanduser(os.environ.get("YT_LOCAL", os.path.join(HOME, "yt-local")))
@@ -290,7 +292,38 @@ def set_codex_enabled(states):
         f.write(text)
 
 
-COMMANDS = ("yt", "yt-spawn", "yt-setup", "yt-build", "yt-doctor", "yt-update", "yt-mask", "yt-export", "yt-import")
+def step_codex_status_line(check_only):
+    """Context and limits in Codex's status line (see ytlib/statusline.py). Optional: never fails setup."""
+    if not shutil.which("codex"):
+        return True
+    if (core.read_json(core.CONFIG, {}) or {}).get("codexStatusLine") is False:
+        say("skip", "Codex status line (codexStatusLine is false)")
+        return True
+    path = os.path.join(os.environ.get("CODEX_HOME") or os.path.join(HOME, ".codex"), "config.toml")
+    text = ""
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    new, state = statusline.codex_plan(text)
+    if state == "ok":
+        say("ok", "Codex status line shows context and limits")
+    elif state == "custom":
+        say("ok", "Codex status line is your own choice; left alone")
+    elif state == "unreadable":
+        say("warn", f"Codex status line not set: could not read {path} safely")
+    elif check_only:
+        say("note", "Codex status line can show context and limits: yt-setup sets it")
+    else:
+        if os.path.exists(path):
+            shutil.copy2(path, path + ".bak-yt-setup")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(new)
+        say("set", "Codex status line: " + ", ".join(statusline.CODEX_ITEMS) + " (new Codex sessions)")
+    return True
+
+
+COMMANDS = ("yt","yt-spawn", "yt-setup", "yt-build", "yt-doctor", "yt-update", "yt-mask", "yt-export", "yt-import")
 
 
 def step_commands(check_only):
@@ -349,6 +382,7 @@ def main(argv):
         step_local(check_only),
         step_claude(check_only),
         step_codex(check_only),
+        step_codex_status_line(check_only),
         step_commands(check_only),
         step_parity(),
     ]
