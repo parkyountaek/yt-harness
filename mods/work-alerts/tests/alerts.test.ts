@@ -86,5 +86,5 @@ test('session start reads yt panel --json, alerts once, and records it in the sh
     await new Promise(r => setTimeout(r, 50))
   }
   expect(toasts.filter(t => t.includes('read-002'))).toEqual(['❓ yt read-002 asks: Which file? → yt cmd read-002'])
-  expect(JSON.parse(files.get('/h/yt-local/data/mods-alerted.json') ?? '{}')).toEqual({ told: ['read-002:question:t1'] })
+  expect(JSON.parse(files.get('/h/yt-local/data/alerted.json') ?? '{}')).toEqual({ told: ['read-002:question:t1'] })
 })

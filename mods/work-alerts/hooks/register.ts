@@ -89,7 +89,8 @@ export const ytAlert = (t: YtTask): { text: string; kind: keyof typeof SOUND } |
 }
 
 // The same need of the same task is told once, in one session: every open Claude session
-// reads the same tasks, so the told keys live in one file shared by all of them.
+// reads the same tasks, so the told keys live in one file shared by all of them and by
+// `yt watch` (same keys and format as ytlib/watch.py).
 export const ytKey = (t: YtTask) => `${t.taskId}:${t.need}:${t.since ?? ''}`
 export const toTell = (snap: YtSnapshot, told: readonly string[]): { fresh: YtTask[]; keep: string[] } => {
   const now = snap.tasks.filter(t => t.need).map(ytKey)
@@ -102,7 +103,7 @@ const watchYt = async ($: EngineInterface) => {
   isYtWatching = true
   try {
     const local = (await $.env.get('YT_LOCAL').catch(() => undefined)) || `${(await $.env.get('HOME').catch(() => undefined)) ?? '~'}/yt-local`
-    const file = `${local}/data/mods-alerted.json`
+    const file = `${local}/data/alerted.json`
     for (;;) {
       const snap = prefs.isOn && prefs.hasHarness ? await readYt($) : undefined
       if (snap) {

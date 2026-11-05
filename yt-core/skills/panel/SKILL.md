@@ -12,3 +12,5 @@ description: Show the yt-harness overview (what needs the human, running sub-ses
    success), Retire?, Harness candidates, and Health. Skip sections with nothing new.
 4. Do not act on the suggestions yourself (answer, resume, stop, retire). Each needs
    the human's decision.
+5. If the human wants to keep watching, suggest `yt watch` in a separate terminal: a live
+   view with a desktop notice when a task needs them (works next to Claude or Codex).

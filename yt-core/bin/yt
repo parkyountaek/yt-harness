@@ -4,6 +4,9 @@
 Usage:
   yt panel [--no-doctor]                   what needs you, what runs, harness health, retire hints
   yt panel --json                          tasks and counts as JSON (no doctor run), for the Claude mods
+  yt watch [--interval N] [--once] [--no-notify]
+                                           live task view in any terminal; a desktop notice when a
+                                           task needs you (told once, shared with the work-alerts mod)
   yt status                                list tasks: id, harness, runtime, state, alive, deadline
   yt attach <task-id>                      hand this terminal to the sub-session (type directly)
   yt stop <task-id>                        stop the sub-session; the task can be resumed later
@@ -403,6 +406,17 @@ def main(argv):
             from ytlib import panel
             print(json.dumps(panel.snapshot()) if rest == ["--json"] else panel.render(with_doctor=not rest))
             return 0
+        if cmd == "watch":
+            from ytlib import watch
+            args, interval = list(rest), 15
+            if "--interval" in args:
+                i = args.index("--interval")
+                if i + 1 >= len(args) or not args[i + 1].isdigit() or int(args[i + 1]) < 2:
+                    return fail("--interval takes whole seconds, 2 or more")
+                interval = int(args.pop(i + 1))
+                args.pop(i)
+            if not set(args) - {"--once", "--no-notify"}:
+                return watch.run(interval, "--once" in args, (lambda _t: None) if "--no-notify" in args else watch.notify)
         if cmd == "metrics" and (not rest or (len(rest) == 2 and rest[0] == "--days" and rest[1].isdigit())):
             return cmd_metrics(int(rest[1]) if rest else 30)
         if cmd == "harness" and rest[:1] == ["new"] and len(rest) == 3:

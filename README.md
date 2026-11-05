@@ -154,6 +154,7 @@ yt answer read-001 "Include blank lines"    # or pass the human's answer through
 yt collect read-001                         # contract check, then print result.md
 yt forget read-001                          # drop a finished task from the list
 yt panel                                    # what needs you, what runs, harness health
+yt watch                                    # live task view + desktop notices, any terminal
 yt route read-check                         # which harness handles a task kind
 yt metrics --days 7                         # success rate, tokens, turns per harness and runtime
 yt harness list                             # harnesses, versions, on/off, Codex copies
@@ -200,13 +201,24 @@ All three also show yt-harness sub-sessions, read from `yt panel --json` (every
   lists the tasks, needs first, each with the yt command that deals with it.
 - `work-alerts`: a popup and sound when a task asks a question, finishes, passes
   its deadline, or ends without reporting. Each need is told once across all open
-  sessions (`~/yt-local/data/mods-alerted.json`).
+  sessions and `yt watch` (`~/yt-local/data/alerted.json`).
 - `compact-handoff`: the handoff note lists the tasks, so a compacted coordinator
   still collects and evaluates them.
 
 Each has a "yt-harness tasks" switch in `/config`. The mods only show and alert:
 starting, answering, and collecting stay `yt` commands, which Codex sessions use the
 same way (the `panel` skill gives Codex the same overview as text).
+
+For Codex, or any terminal, `yt watch` shows the same tasks live and posts a desktop
+notice (`osascript` on macOS, `notify-send` on Linux) when one needs you; it shares
+the told file with `work-alerts`, so running both never tells a need twice. Codex's
+own status line covers context and limits: `/statusline`, or in
+`~/.codex/config.toml`:
+
+```toml
+[tui]
+status_line = ["model-with-reasoning", "context-used", "five-hour-limit", "weekly-limit", "task-progress"]
+```
 
 `yt-setup` adds them to `CLAUDE_CODE_PLUGIN_DIRS` next to yt-core and points
 `CLAUDE_MODS_THEME_FILE` at `~/yt-local/mods-theme.json`; `"mods": false` in

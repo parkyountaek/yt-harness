@@ -8,12 +8,13 @@ import json
 import os
 import sys
 import tempfile
+import time
 
 LOCAL = tempfile.mkdtemp(prefix="ytlab")
 os.environ.update(YT_LOCAL=LOCAL, YT_WORK=os.path.join(LOCAL, "work"))
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "yt-core", "lib"))
-from ytlib import core, lab, metrics, panel  # noqa: E402
+from ytlib import core, lab, metrics, panel, watch  # noqa: E402
 
 results = {"pass": 0, "fail": 0}
 
@@ -93,6 +94,29 @@ def main():
     check("snapshot: the question and its command are there",
           by_id["p-wait"]["question"] == "Which file?" and by_id["p-wait"]["command"].startswith("yt answer p-wait"))
     check("snapshot: each task has a time to tell repeats apart", all(t["since"] for t in snap["tasks"]))
+    # yt watch: told once, shared file, same keys as the work-alerts mod
+    sent = []
+    first = watch.tell(snap, sent.append)
+    check("watch: each need is told once", len(first) == 2 and watch.tell(snap, sent.append) == [] and len(sent) == 2,
+          sent)
+    check("watch: the question and its command are in the notice",
+          any(t.startswith("yt p-wait asks: Which file? -> yt answer p-wait") for t in first), first)
+    with open(watch.TOLD) as f:
+        told = json.load(f)["told"]
+    check("watch: told keys use the mod's format (task:need:since)",
+          sorted(k.split(":")[:2] for k in told) == [["p-done", "collect"], ["p-wait", "question"]], told)
+    time.sleep(1.1)   # status times have one-second resolution
+    core.write_status(core.task_dir("p-wait"), {"state": "waiting-human", "question": "Which file?"})
+    check("watch: asked again (new status time) is told again", len(watch.tell(panel.snapshot(), sent.append)) == 1)
+    core.write_status(core.task_dir("p-wait"), {"state": "done"})
+    core.log_event("collect", taskId="p-wait")
+    watch.tell(panel.snapshot(), sent.append)
+    with open(watch.TOLD) as f:
+        check("watch: a task that no longer needs you is dropped from the file",
+              not any(k.startswith("p-wait:") for k in json.load(f)["told"]))
+    text = watch.screen(panel.snapshot())
+    check("watch: the screen lists needs and running tasks", "p-done: done, not collected" in text
+          and "== Running" in text and "1 to collect" in text, text)
     with open(core.EVENTS, "a") as f:
         f.write(json.dumps({"at": "2026-01-01T00:00:00+00:00", "event": "spawn", "ok": True, "harness": "yt-ops"}) + "\n")
     _, retire = panel.harness_rows()
