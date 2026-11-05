@@ -18,6 +18,12 @@
       "title": "Handoff note at compaction",
       "description": "When a long conversation is compacted automatically, leaves a note of requests, tasks and edited files so the work is not lost.",
       "default": true
+    },
+    "harness": {
+      "type": "boolean",
+      "title": "yt-harness tasks in the note",
+      "description": "Adds the yt-harness sub-sessions on this machine (what each needs, and the yt command) to the handoff note, so they are not forgotten after compaction.",
+      "default": true
     }
   }
 }

@@ -84,6 +84,15 @@ def main():
     check("panel: a question needs the human", "p-wait: question" in text)
     check("panel: an uncollected result needs the human", "p-done: done, not collected" in text)
     check("panel: a collected result does not", "p-old" not in text)
+    snap = panel.snapshot()
+    by_id = {t["taskId"]: t for t in snap["tasks"]}
+    check("snapshot: same needs as the text panel",
+          by_id.get("p-wait", {}).get("need") == "question" and by_id.get("p-done", {}).get("need") == "collect"
+          and "p-old" not in by_id, by_id)
+    check("snapshot: counts match the tasks", snap["counts"]["question"] == 1 and snap["counts"]["collect"] == 1)
+    check("snapshot: the question and its command are there",
+          by_id["p-wait"]["question"] == "Which file?" and by_id["p-wait"]["command"].startswith("yt answer p-wait"))
+    check("snapshot: each task has a time to tell repeats apart", all(t["since"] for t in snap["tasks"]))
     with open(core.EVENTS, "a") as f:
         f.write(json.dumps({"at": "2026-01-01T00:00:00+00:00", "event": "spawn", "ok": True, "harness": "yt-ops"}) + "\n")
     _, retire = panel.harness_rows()

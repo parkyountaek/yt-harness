@@ -49,6 +49,12 @@
         "ocean",
         "vivid"
       ]
+    },
+    "harness": {
+      "type": "boolean",
+      "title": "yt-harness tasks",
+      "description": "A row above the prompt with the yt-harness sub-sessions (running, waiting for you, to collect). Press it to list them with the yt command for each.",
+      "default": true
     }
   }
 }

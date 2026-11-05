@@ -1,7 +1,10 @@
 import type { EngineInterface, Register } from 'claude-code'
 
+import { readYt, YT_POLL_MS } from './yt'
+import type { YtSnapshot, YtTask } from './yt'
+
 // Settings come from /config (this plugin's userConfig); a change there reloads the module.
-type Prefs = { isOn: boolean; hasSound: boolean; hasDesktop: boolean; longTurnSec: number; subagent: string }
+type Prefs = { isOn: boolean; hasSound: boolean; hasDesktop: boolean; longTurnSec: number; subagent: string; hasHarness: boolean }
 const LONG_TURN: Record<string, number> = { '30s': 30, '60s': 60, '2m': 120, '5m': 300 }
 
 export const prefsFrom = (o: Readonly<Record<string, unknown>>): Prefs => ({
@@ -10,6 +13,7 @@ export const prefsFrom = (o: Readonly<Record<string, unknown>>): Prefs => ({
   hasDesktop: o.desktop !== false,
   longTurnSec: LONG_TURN[String(o.longTurn)] ?? 60,
   subagent: typeof o.subagent === 'string' ? o.subagent : 'popup only',
+  hasHarness: o.harness !== false,
 })
 
 const SOUND = {
@@ -63,12 +67,62 @@ async function alert($: EngineInterface, text: string, kind: keyof typeof SOUND,
 
 const flag = (x: boolean) => (x ? 'on' : 'off')
 const describe = (p: Prefs) =>
-  `Work alerts ${flag(p.isOn)} · sound ${flag(p.hasSound)} · macOS popup ${flag(p.hasDesktop)} · only replies over ${p.longTurnSec}s · subagents: ${p.subagent}`
+  `Work alerts ${flag(p.isOn)} · sound ${flag(p.hasSound)} · macOS popup ${flag(p.hasDesktop)} · only replies over ${p.longTurnSec}s · subagents: ${p.subagent} · yt-harness tasks: ${flag(p.hasHarness)}`
 
 // Commands write through /config, so the menu and the commands never disagree.
 async function setOption($: EngineInterface, field: string, value: boolean | string): Promise<boolean> {
   const r = await $.config.set({ key: `work-alerts.${field}`, value }).catch(() => ({ deny: 'error' }))
   return !('deny' in r && r.deny !== undefined)
+}
+
+// ---------------------------------------------------------------- yt-harness tasks
+
+// What a yt-harness task needs, as an alert: the text, the sound, and the yt command.
+export const ytAlert = (t: YtTask): { text: string; kind: keyof typeof SOUND } | undefined => {
+  const run = t.command ? ` → ${t.command}` : ''
+  if (t.need === 'question') return { text: `❓ yt ${t.taskId} asks: ${t.question ?? ''}${run}`, kind: 'warn' }
+  if (t.need === 'collect')
+    return t.state === 'failed' ? { text: `✗ yt ${t.taskId} failed${run}`, kind: 'fail' } : { text: `✅ yt ${t.taskId} ${t.state ?? 'done'}${run}`, kind: 'done' }
+  if (t.need === 'deadline') return { text: `⏰ yt ${t.taskId} is past its deadline${run}`, kind: 'warn' }
+  if (t.need === 'ended') return { text: `⚠ yt ${t.taskId} ended without reporting${run}`, kind: 'fail' }
+  return undefined
+}
+
+// The same need of the same task is told once, in one session: every open Claude session
+// reads the same tasks, so the told keys live in one file shared by all of them.
+export const ytKey = (t: YtTask) => `${t.taskId}:${t.need}:${t.since ?? ''}`
+export const toTell = (snap: YtSnapshot, told: readonly string[]): { fresh: YtTask[]; keep: string[] } => {
+  const now = snap.tasks.filter(t => t.need).map(ytKey)
+  return { fresh: snap.tasks.filter(t => t.need && !told.includes(ytKey(t))), keep: now }
+}
+
+let isYtWatching = false
+const watchYt = async ($: EngineInterface) => {
+  if (isYtWatching) return
+  isYtWatching = true
+  try {
+    const local = (await $.env.get('YT_LOCAL').catch(() => undefined)) || `${(await $.env.get('HOME').catch(() => undefined)) ?? '~'}/yt-local`
+    const file = `${local}/data/mods-alerted.json`
+    for (;;) {
+      const snap = prefs.isOn && prefs.hasHarness ? await readYt($) : undefined
+      if (snap) {
+        const told = await $.fs.read(file).then(t => (JSON.parse(t) as { told?: string[] }).told ?? []).catch(() => [] as string[])
+        const { fresh, keep } = toTell(snap, told)
+        if (fresh.length || keep.length !== told.length) {
+          await $.fs.write(file, `${JSON.stringify({ told: keep })}\n`).catch(() => undefined)
+        }
+        for (const t of fresh) {
+          const a = ytAlert(t)
+          if (a) await alert($, a.text, a.kind, true)
+        }
+      }
+      await $.clock.sleep(YT_POLL_MS)
+    }
+  } catch {
+    // No clock (a test): checked again on the next turn.
+  } finally {
+    isYtWatching = false
+  }
 }
 
 export const register: Register = (on, options) => {
@@ -84,6 +138,7 @@ export const register: Register = (on, options) => {
       argumentHint: '[test]',
     })
     await $.command.register({ name: 'task-alert', description: 'Turn the alert sound on/off (on|off, empty toggles)', argumentHint: '[on|off]' })
+    void watchYt($)
     return next(e)
   })
 
@@ -105,6 +160,8 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
+    // A reload (a /config change) does not raise session.start again: restart the watcher here.
+    void watchYt($)
     const took = duration(e.durationMs)
     if (e.agentId !== undefined) {
       const info = (await $.agent.list()).find(a => a.id === e.agentId)

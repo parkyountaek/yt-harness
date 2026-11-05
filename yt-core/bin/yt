@@ -3,6 +3,7 @@
 
 Usage:
   yt panel [--no-doctor]                   what needs you, what runs, harness health, retire hints
+  yt panel --json                          tasks and counts as JSON (no doctor run), for the Claude mods
   yt status                                list tasks: id, harness, runtime, state, alive, deadline
   yt attach <task-id>                      hand this terminal to the sub-session (type directly)
   yt stop <task-id>                        stop the sub-session; the task can be resumed later
@@ -398,9 +399,9 @@ def main(argv):
             return cmd_status()
         if cmd == "resume" and len(rest) in (1, 3) and (len(rest) == 1 or rest[1] == "--deadline"):
             return cmd_resume(rest[0], rest[2] if len(rest) == 3 else None)
-        if cmd == "panel" and rest in ([], ["--no-doctor"]):
+        if cmd == "panel" and rest in ([], ["--no-doctor"], ["--json"]):
             from ytlib import panel
-            print(panel.render(with_doctor=not rest))
+            print(json.dumps(panel.snapshot()) if rest == ["--json"] else panel.render(with_doctor=not rest))
             return 0
         if cmd == "metrics" and (not rest or (len(rest) == 2 and rest[0] == "--days" and rest[1].isdigit())):
             return cmd_metrics(int(rest[1]) if rest else 30)

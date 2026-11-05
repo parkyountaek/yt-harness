@@ -15,5 +15,11 @@ for m in */; do
   bad=$(printf '%s\n' "$out" | sed -n 's/^ *\([0-9][0-9]*\) fail$/\1/p' | tail -1)
   if [ "${bad:-1}" = 0 ]; then echo "PASS $m: ${pass:-0} tests"; else echo "FAIL $m: ${bad:-?} failed"; fail=1; fi
 done
+# hooks/yt.ts is shared by the mods that read yt-harness tasks: every copy must match.
+first=""
+for f in */hooks/yt.ts; do
+  [ -f "$f" ] || continue
+  if [ -z "$first" ]; then first=$f; elif ! cmp -s "$first" "$f"; then echo "FAIL $f differs from $first"; fail=1; fi
+done
 [ "$fail" -eq 0 ] && echo "mods ok"
 exit $fail

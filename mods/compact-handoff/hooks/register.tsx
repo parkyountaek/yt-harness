@@ -8,6 +8,9 @@ import type { ThemeFile } from './theme'
 
 export type { Handoff }
 
+import { needLine, readYt } from './yt'
+import type { YtTask } from './yt'
+
 const TAG = '[compact-handoff]'
 const KEEP_PROMPTS = 4
 const KEEP_FILES = 15
@@ -132,7 +135,7 @@ const collectFresh = (messages: readonly SessionMessage[]): Handoff => {
 
 const MARK: Record<string, string> = { completed: '[x]', in_progress: '[>]', pending: '[ ]' }
 
-export const render = (hand: Handoff, cwd: string): string => {
+export const render = (hand: Handoff, cwd: string, yt: readonly YtTask[] = []): string => {
   const out = [
     `${TAG} Handoff note written just before compaction, from the transcript itself.`,
     'Use it with the summary above to continue the same task without asking the user to repeat anything.',
@@ -148,6 +151,12 @@ export const render = (hand: Handoff, cwd: string): string => {
   }
   if (hand.files.length) out.push('', '## Files touched', ...hand.files.map(f => `- ${f}`))
   if (hand.failures.length) out.push('', '## Recent failed commands', ...hand.failures.map(f => `- ${f}`))
+  if (yt.length) {
+    // Read live from yt at compaction, never carried over from an earlier note.
+    out.push('', '## yt-harness tasks on this machine (from yt panel --json)')
+    yt.forEach(t => out.push(`- ${t.harness ?? '?'}/${t.runtime ?? '?'}: ${needLine(t)}`))
+    out.push('Collect and evaluate finished ones as the coordinator skill says; answer questions with yt answer.')
+  }
   if (hand.lastStep) out.push('', '## Last assistant message before compaction', hand.lastStep)
   out.push('', 'Next: pick up from the first unfinished task (or the last message) and continue.')
   return out.join('\n')
@@ -245,6 +254,7 @@ async function setOption($: EngineInterface, field: string, value: boolean): Pro
 export const register: Register = (on, options) => {
   const isBandOn = options.band !== false
   let isHandoffOn = options.handoff !== false
+  const isHarnessOn = options.harness !== false
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -414,7 +424,8 @@ export const register: Register = (on, options) => {
 
     const handoff = collect(e.messages)
     const cwd = await $.session.cwd().catch(() => '')
-    const note = render(handoff, cwd)
+    const yt = isHarnessOn ? ((await readYt($))?.tasks ?? []) : []
+    const note = render(handoff, cwd, yt)
     const instructions = e.instructions ? `${e.instructions}\n\n${INSTRUCTIONS}` : INSTRUCTIONS
 
     const done = await next({ ...e, instructions })

@@ -273,3 +273,88 @@ test('a pane whose subagent is gone can still be closed, and /clear closes it', 
   expect(isUp).toBe(false)
   expect(closes.every(id => id === 'agent-view')).toBe(true)
 })
+
+const SNAP = {
+  schema: 1,
+  counts: { running: 1, question: 1, deadline: 0, collect: 1, ended: 0 },
+  tasks: [
+    { taskId: 'read-002', harness: 'yt-ops', runtime: 'codex', state: 'waiting-human', since: 't1', need: 'question', question: 'Count blank lines?', command: 'yt answer read-002 "..."' },
+    { taskId: 'read-003', harness: 'yt-ops', runtime: 'claude', state: 'done', since: 't2', need: 'collect', command: 'yt collect read-003' },
+    { taskId: 'read-004', harness: 'yt-wiki', runtime: 'claude', state: 'running', since: 't3', need: null, command: null },
+  ],
+}
+
+test('yt-harness tasks: a band row with counts opens a pane listing them, needs first', async ($, on) => {
+  let isUp = false
+  const runs: string[][] = []
+  on('agent.list', () => ({ value: [] }))
+  on('clock.now', () => ({ value: Date.UTC(2026, 9, 6, 10) }))
+  on('ui.status', () => ({ value: undefined }))
+  on('settings.read', () => ({ value: {} }))
+  on('process.run', (_$, e) => (runs.push([...e.argv]), { value: { exitCode: 0, stdout: JSON.stringify(SNAP), stderr: '' } }))
+  on('ui.panes', () => ({ value: isUp ? [{ id: 'agent-view', title: '', isShown: true, isFocused: false, isPlaced: true, plugin: 'token-usage' }] : [] }))
+  on('ui.open', () => ((isUp = true), { value: { isPlaced: true } }))
+  on('ui.close', () => ((isUp = false), { value: undefined }))
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box key="engine" />
+  })
+  // The first draw starts the reader; the next one shows what it read.
+  const first = await $.ui.mount({ plugin: 'token-usage', surface: 'terminal', ...BAND })
+  await first.unmount()
+  expect(runs[0]?.[0]).toMatch(/\/yt-core\/bin\/yt$/)
+  expect(runs[0]?.slice(1)).toEqual(['panel', '--json'])
+  const band = await $.ui.mount({ plugin: 'token-usage', surface: 'terminal', ...BAND })
+  const row = await band.find({ type: 'Button', key: 'yt:open' })
+  expect(row?.props.label).toBe('🧩 yt 1 waiting · 1 to collect · 1 running')
+  await band.press({ key: 'yt:open' })
+  await band.unmount()
+  expect(isUp).toBe(true)
+  const pane = await $.ui.mount({ plugin: 'token-usage', surface: 'terminal', component: 'Pane', requestId: 'agent-view', props: {}, viewport: { columns: 100, rows: 20 } } as Parameters<typeof $.ui.mount>[0])
+  const texts = (await pane.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+  expect(texts).toMatch(/read-002 asks: Count blank lines\? → yt answer read-002/)
+  expect(texts).toMatch(/read-003 done, not collected → yt collect read-003/)
+  expect(texts.indexOf('read-002')).toBeLessThan(texts.indexOf('read-004'))
+  await pane.press({ key: 'tab:close' })
+  await pane.unmount()
+  expect(isUp).toBe(false)
+})
+
+test('yt-harness tasks: no row when yt is missing or nothing is going on', async ($, on) => {
+  let out = { exitCode: 1, stdout: '', stderr: 'no yt' }
+  on('agent.list', () => ({ value: [] }))
+  on('clock.now', () => ({ value: Date.UTC(2026, 9, 6, 10) }))
+  on('ui.status', () => ({ value: undefined }))
+  on('settings.read', () => ({ value: {} }))
+  on('process.run', () => ({ value: out }))
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box key="engine" />
+  })
+  for (const next of [out, { exitCode: 0, stdout: JSON.stringify({ ...SNAP, counts: {}, tasks: [] }), stderr: '' }]) {
+    out = next
+    await (await $.ui.mount({ plugin: 'token-usage', surface: 'terminal', ...BAND })).unmount()
+    const band = await $.ui.mount({ plugin: 'token-usage', surface: 'terminal', ...BAND })
+    expect(await band.find({ type: 'Button', key: 'yt:open' })).toBeUndefined()
+    await band.unmount()
+  }
+})
+
+test('yt-harness tasks set to off: yt is never run and no row is drawn', { options: { harness: false } }, async ($, on) => {
+  const runs: string[] = []
+  on('agent.list', () => ({ value: [] }))
+  on('clock.now', () => ({ value: Date.UTC(2026, 9, 6, 10) }))
+  on('ui.status', () => ({ value: undefined }))
+  on('settings.read', () => ({ value: {} }))
+  on('process.run', (_$, e) => (runs.push(e.argv.join(' ')), { value: { exitCode: 0, stdout: JSON.stringify(SNAP), stderr: '' } }))
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box key="engine" />
+  })
+  for (let i = 0; i < 2; i++) {
+    const band = await $.ui.mount({ plugin: 'token-usage', surface: 'terminal', ...BAND })
+    expect(await band.find({ type: 'Button', key: 'yt:open' })).toBeUndefined()
+    await band.unmount()
+  }
+  expect(runs.filter(r => r.includes('panel'))).toEqual([])
+})

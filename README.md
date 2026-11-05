@@ -193,6 +193,21 @@ sessions. They change what the human sees, not what a sub-session does.
 | `work-alerts` | Popup, sound, and macOS notification when a long turn ends, a check fails, a subagent finishes, or a limit is near | `/alerts`, `/task-alert` |
 | `compact-handoff` | A task-progress line, and a handoff note so work continues after compaction | `/work`, `/handoff` |
 
+All three also show yt-harness sub-sessions, read from `yt panel --json` (every
+15 seconds for the band and alerts, once at compaction for the note):
+
+- `token-usage`: a row `🧩 yt 1 waiting · 1 to collect · 2 running`; pressing it
+  lists the tasks, needs first, each with the yt command that deals with it.
+- `work-alerts`: a popup and sound when a task asks a question, finishes, passes
+  its deadline, or ends without reporting. Each need is told once across all open
+  sessions (`~/yt-local/data/mods-alerted.json`).
+- `compact-handoff`: the handoff note lists the tasks, so a compacted coordinator
+  still collects and evaluates them.
+
+Each has a "yt-harness tasks" switch in `/config`. The mods only show and alert:
+starting, answering, and collecting stay `yt` commands, which Codex sessions use the
+same way (the `panel` skill gives Codex the same overview as text).
+
 `yt-setup` adds them to `CLAUDE_CODE_PLUGIN_DIRS` next to yt-core and points
 `CLAUDE_MODS_THEME_FILE` at `~/yt-local/mods-theme.json`; `"mods": false` in
 `~/yt-local/config.json` leaves them out. Settings are in `/config`.

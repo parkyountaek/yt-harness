@@ -20,8 +20,17 @@ def _events():
     return lab._lines(core.EVENTS)
 
 
-def needs_and_running():
-    needs, running = [], []
+QUESTION_CHARS = 100
+
+
+def tasks():
+    """One record per task in the session list: what it needs from the human, if anything.
+
+    need is one of question, deadline, collect, ended (ran out without reporting), or
+    None while it runs. `command` is the yt command that deals with it. The question is
+    the only free text, cut to QUESTION_CHARS; it was written for the human to read.
+    """
+    out = []
     collected = {d.get("taskId") for d in _events() if d.get("event") == "collect"}
     for task_id, e in sorted(core.load_sessions()["sessions"].items()):
         status = core.read_status(core.task_dir(task_id)) or {}
@@ -31,17 +40,48 @@ def needs_and_running():
             alive = bool(e.get("runnerHandle")) and runners.load(e["runner"]).alive(e["runnerHandle"])
         except Exception:  # noqa: BLE001  a broken runner must not break the panel
             alive = False
+        rec = {"taskId": task_id, "harness": e.get("harness"), "runtime": e.get("runtime"),
+               "runner": e.get("runner"), "state": state, "deadline": e.get("deadline"),
+               "since": status.get("updatedAt"), "need": None, "command": None}
         if state == "waiting-human":
-            needs.append(f"{task_id}: question: {str(status.get('question', ''))[:100]}  ->  yt answer {task_id} \"...\"")
+            rec.update(need="question", question=str(status.get("question", ""))[:QUESTION_CHARS],
+                       command=f'yt answer {task_id} "..."')
         elif state == "stale" or (state == "running" and deadline and core.now() > deadline):
-            needs.append(f"{task_id}: past its deadline  ->  yt attach {task_id}, yt resume or yt stop")
+            rec.update(need="deadline", command=f"yt attach {task_id}, yt resume or yt stop")
         elif state in core.FINAL and task_id not in collected:
-            needs.append(f"{task_id}: {state}, not collected  ->  yt collect {task_id}")
+            rec.update(need="collect", command=f"yt collect {task_id}")
         elif state == "running" and not alive:
-            needs.append(f"{task_id}: run ended without reporting  ->  yt attach {task_id}, then yt resume")
-        elif state == "running":
-            running.append(f"{task_id}: {e['harness']} on {e['runtime']} ({e['runner']}), deadline {e.get('deadline')}")
+            rec.update(need="ended", command=f"yt attach {task_id}, then yt resume")
+        elif state != "running":
+            continue    # finished and collected: nothing to show
+        out.append(rec)
+    return out
+
+
+def need_line(t):
+    what = {"question": f"question: {t.get('question', '')}", "deadline": "past its deadline",
+            "collect": f"{t['state']}, not collected", "ended": "run ended without reporting"}[t["need"]]
+    return f"{t['taskId']}: {what}  ->  {t['command']}"
+
+
+def needs_and_running():
+    all_tasks = tasks()
+    needs = [need_line(t) for t in all_tasks if t["need"]]
+    running = [f"{t['taskId']}: {t['harness']} on {t['runtime']} ({t['runner']}), deadline {t['deadline']}"
+               for t in all_tasks if not t["need"]]
     return needs, running
+
+
+def snapshot():
+    """What the Claude interface mods show: tasks and counts only, no doctor run.
+
+    The mods display this and raise alerts; every action stays a yt command.
+    """
+    all_tasks = tasks()
+    counts = {"running": sum(not t["need"] for t in all_tasks)}
+    for need in ("question", "deadline", "collect", "ended"):
+        counts[need] = sum(t["need"] == need for t in all_tasks)
+    return {"schema": 1, "at": core.iso(core.now()), "counts": counts, "tasks": all_tasks}
 
 
 def harness_rows(days=30):

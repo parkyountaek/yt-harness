@@ -6,6 +6,8 @@ import type { AgentRow, Context, Limit, Tokens, Usage } from '../types'
 import type { Slot } from './theme'
 import { applyThemeArgs, palette, parseTheme, PRESETS, SLOTS, themePath } from './theme'
 import type { Palette, ThemeFile } from './theme'
+import { needLine, readYt, YT_POLL_MS } from './yt'
+import type { YtSnapshot } from './yt'
 
 const KEEP_TURNS = 200
 const KEEP_AGENTS = 40
@@ -336,6 +338,8 @@ const syncAgents = async ($: EngineInterface) => {
 }
 
 const AGENT_PANE = 'agent-view'
+// `viewing` set to this shows the yt-harness tasks (sub-sessions) in the same pane.
+const YT_VIEW = 'yt'
 // `viewing` set to this shows every subagent of the session to pick from.
 const AGENT_LIST = '*'
 
@@ -420,6 +424,37 @@ const tick = async ($: EngineInterface) => {
   }
 }
 
+// yt-harness sub-sessions run outside this session (tmux, headless, Orca), so the band
+// asks `yt panel --json` every YT_POLL_MS. Kept in the module, not the saved state:
+// it is read again after a reload.
+let ytSnap: YtSnapshot | undefined
+let isYtWatching = false
+const watchYt = async ($: EngineInterface) => {
+  if (isYtWatching) return
+  isYtWatching = true
+  try {
+    for (;;) {
+      const next = await readYt($)
+      if (JSON.stringify(next) !== JSON.stringify(ytSnap)) {
+        ytSnap = next
+        $.ui.invalidate('ui.render')
+      }
+      await $.clock.sleep(YT_POLL_MS)
+    }
+  } catch {
+    // No clock (a test): read again on the next draw.
+  } finally {
+    isYtWatching = false
+  }
+}
+
+const YT_PARTS: [string, string][] = [['question', 'waiting'], ['deadline', 'late'], ['ended', 'ended'], ['collect', 'to collect'], ['running', 'running']]
+export const ytSummary = (s: YtSnapshot | undefined): string | undefined => {
+  const parts = YT_PARTS.filter(([k]) => (s?.counts[k] ?? 0) > 0).map(([k, label]) => `${s?.counts[k]} ${label}`)
+  return parts.length ? `🧩 yt ${parts.join(' · ')}` : undefined
+}
+const ytNeedsYou = (s: YtSnapshot | undefined) => (s?.counts.question ?? 0) + (s?.counts.deadline ?? 0) + (s?.counts.ended ?? 0) > 0
+
 // A press on a subagent's row opens its transcript in a pane; pressing the one shown closes it.
 type View = { columns?: number; rows?: number } | undefined
 
@@ -445,7 +480,7 @@ const toggleAgentView = async ($: EngineInterface, id: string, view: View, isTab
   const cols = view?.columns ?? 100
   const placed = await $.ui.open({
     id: AGENT_PANE,
-    title: id === AGENT_LIST ? 'Subagents' : `${tag.mark} ${a?.description || a?.type || 'subagent'}`,
+    title: id === AGENT_LIST ? 'Subagents' : id === YT_VIEW ? 'yt-harness tasks' : `${tag.mark} ${a?.description || a?.type || 'subagent'}`,
     focus: true,
     closeOnEscape: true,
     rows: Math.max(6, (view?.rows ?? 30) - 8),
@@ -460,13 +495,14 @@ const toggleAgentView = async ($: EngineInterface, id: string, view: View, isTab
 
 // ---------------------------------------------------------------- hooks
 
-type Opts = { isBandOn: boolean; hasResetTimes: boolean; agentRows: number; hasActivity: boolean; theme?: string }
+type Opts = { isBandOn: boolean; hasResetTimes: boolean; agentRows: number; hasActivity: boolean; theme?: string; hasHarness: boolean }
 export const optsFrom = (o: Readonly<Record<string, unknown>>): Opts => ({
   isBandOn: o.band !== false,
   hasResetTimes: o.resetTimes === true,
   agentRows: o.agentRows === 'off' ? 0 : Number(o.agentRows ?? 5) || 5,
   hasActivity: o.agentActivity !== false,
   theme: typeof o.theme === 'string' && o.theme in PRESETS ? o.theme : undefined,
+  hasHarness: o.harness !== false,
 })
 
 // Settings come from /config (userConfig); a change there reloads the module.
@@ -624,6 +660,7 @@ export const register: Register = (on, options) => {
     const u = await read($, usage)
     const below = await next(e)
     if (e.props.hasSurvey || u.isBandHidden || (!opts.isBandOn && !u.isExpanded)) return below
+    if (opts.hasHarness) void watchYt($)
 
     const { Box, Button, Text } = $.ui.resolve(e)
     const P = themeOf(u)
@@ -742,10 +779,20 @@ export const register: Register = (on, options) => {
         : []),
     ]
 
+    const ytText = opts.hasHarness ? ytSummary(ytSnap) : undefined
+    const ytRow = ytText ? (
+      <Box key="yt">
+        <Text color={P.accent}>{viewing === YT_VIEW ? '👁 ' : '  '}</Text>
+        <Text bold color={ytNeedsYou(ytSnap) ? P.warn : P.accent}>{ytNeedsYou(ytSnap) ? '● ' : '◌ '}</Text>
+        <Button key="yt:open" plain label={ytText} onPress={() => toggleAgentView($, YT_VIEW, e.viewport)} />
+      </Box>
+    ) : null
+
     if (!u.isExpanded) {
       return (
         <Box flexDirection="column">
           {line}
+          {ytRow}
           {agentRows}
           {below}
         </Box>
@@ -771,6 +818,7 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column">
         {line}
+        {ytRow}
         {st && pct !== undefined && u.context && row('context', pct, P[st.tone], `${fmt(u.context.tokens ?? 0)}/${fmt(u.context.window)} ${st.label}`)}
         {limits.map(l => row(`${limitLabel(l.kind)} limit`, l.percentUsed, P[contextState(l.percentUsed).tone], resetsIn(l.resetsAt, now)))}
         {row('cache hit', cachePct, P.ok, `↑${fmt(inputOf(totals))} ↓${fmt(totals.output)}`)}
@@ -850,9 +898,30 @@ export const register: Register = (on, options) => {
             />
           )
         })}
+        {opts.hasHarness && ytSnap && ytSnap.tasks.length > 0 && (
+          <Button key="tab:yt" plain label={u.viewing === YT_VIEW ? '[yt]' : ' yt '} onPress={() => toggleAgentView($, YT_VIEW, view, true)} />
+        )}
         <Button key="tab:close" plain label=" ✕ close " onPress={() => closeAgentView($)} />
       </Box>
     )
+    if (u.viewing === YT_VIEW) {
+      const rows = [...(ytSnap?.tasks ?? [])].sort((x, y) => Number(!x.need) - Number(!y.need))
+      return (
+        <Box flexDirection="column">
+          {tabs}
+          <Text dimColor>{'─'.repeat(Math.min(width, 80))}</Text>
+          {rows.length === 0 && <Text dimColor>No yt-harness tasks right now.</Text>}
+          {rows.map(t => (
+            <Text key={`yt:${t.taskId}`}>
+              <Text color={t.need === 'collect' ? P.ok : t.need ? P.warn : P.accent}>{t.need ? '● ' : '◌ '}</Text>
+              <Text dimColor>{fit(`${t.harness ?? '?'}/${t.runtime ?? '?'}`, 18)} </Text>
+              <Text>{clip(needLine(t), Math.max(20, width - 22))}</Text>
+            </Text>
+          ))}
+          <Text dimColor>Run the command in a terminal (or ! in the prompt). Everything: yt panel. Esc: back to main.</Text>
+        </Box>
+      )
+    }
     if (u.viewing === AGENT_LIST) {
       return (
         <Box flexDirection="column">

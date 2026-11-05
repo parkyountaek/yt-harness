@@ -100,3 +100,34 @@ test('a second compaction keeps what the first note held', () => {
   expect(hand.files).toEqual(['/m/register.ts', '/m/theme.ts'])
   expect(hand.lastStep).toBe('Theme done; tests next.')
 })
+
+test('the note lists yt-harness tasks read at compaction, and a later note does not carry them over', async ($, on) => {
+  const snap = {
+    schema: 1,
+    counts: { question: 1, running: 1 },
+    tasks: [
+      { taskId: 'read-002', harness: 'yt-ops', runtime: 'codex', state: 'waiting-human', need: 'question', question: 'Which file?', command: 'yt answer read-002 "..."' },
+      { taskId: 'read-004', harness: 'yt-wiki', runtime: 'claude', state: 'running', need: null, command: null },
+    ],
+  }
+  on('clock.now', () => ({ value: Date.UTC(2026, 9, 6) }))
+  on('store.set', () => ({ value: undefined }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: JSON.stringify(snap), stderr: '' } }))
+  on('session.compact', () => ({ messages: [said('SUMMARY')] }))
+  const done = await $.session.compact({ trigger: 'auto', messages: TRANSCRIPT })
+  const note = done.messages?.[1]?.text ?? ''
+  expect(note).toContain('## yt-harness tasks on this machine')
+  expect(note).toContain('- yt-ops/codex: read-002 asks: Which file? → yt answer read-002 "..."')
+  expect(note).toContain('- yt-wiki/claude: read-004 running')
+  // The live list is not part of what a second compaction merges.
+  expect(render(parseNote(note), '')).not.toContain('read-002')
+})
+
+test('no yt section when yt is missing', async ($, on) => {
+  on('clock.now', () => ({ value: Date.UTC(2026, 9, 6) }))
+  on('store.set', () => ({ value: undefined }))
+  on('process.run', () => ({ value: { exitCode: 127, stdout: '', stderr: 'not found' } }))
+  on('session.compact', () => ({ messages: [said('SUMMARY')] }))
+  const done = await $.session.compact({ trigger: 'auto', messages: TRANSCRIPT })
+  expect(done.messages?.[1]?.text ?? '').not.toContain('yt-harness')
+})
