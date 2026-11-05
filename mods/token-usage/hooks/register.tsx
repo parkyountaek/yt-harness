@@ -423,14 +423,20 @@ const tick = async ($: EngineInterface) => {
 // A press on a subagent's row opens its transcript in a pane; pressing the one shown closes it.
 type View = { columns?: number; rows?: number } | undefined
 
+// Closing never depends on the subagent still being there: its row, its tab, or the
+// view itself can be gone (/clear, a trimmed row) while the pane is still up.
+const closeAgentView = async ($: EngineInterface) => {
+  await update($, usage, x => ({ ...x, viewing: undefined }))
+  await $.ui.close({ id: AGENT_PANE }).catch(() => undefined)
+}
+
 // Opened focused and near full size, so it reads as the main view switching to that agent.
 const toggleAgentView = async ($: EngineInterface, id: string, view: View, isTab = false) => {
   const u = await read($, usage)
   if (u.viewing === id) {
     // A tab already shown stays; the row's name toggles the pane shut.
     if (isTab) return
-    await update($, usage, x => ({ ...x, viewing: undefined }))
-    await $.ui.close({ id: AGENT_PANE })
+    await closeAgentView($)
     return
   }
   const a = u.agents.find(x => x.id === id)
@@ -499,6 +505,7 @@ export const register: Register = (on, options) => {
       return { text: arg === 'band off' ? 'Usage line hidden.' : 'Usage line shown.' }
     }
     if (arg === 'close' || arg === 'open' || arg === '') {
+      if (arg === 'close') await closeAgentView($)
       await freshen($)
       const isExpanded = arg === 'open' || (arg === '' && !(await read($, usage)).isExpanded)
       await update($, usage, u => ({ ...u, isExpanded, isBandHidden: false }))
@@ -528,6 +535,8 @@ export const register: Register = (on, options) => {
     if (e.reason === 'clear') {
       known.clear()
       ignored.clear()
+      // The pane would show a subagent that no longer exists, with no row left to close it.
+      await closeAgentView($)
       await update($, usage, u => ({ ...EMPTY, theme: u.theme, limits: u.limits, model: u.model, effort: u.effort }))
     }
     return next(e)
@@ -841,6 +850,7 @@ export const register: Register = (on, options) => {
             />
           )
         })}
+        <Button key="tab:close" plain label=" ✕ close " onPress={() => closeAgentView($)} />
       </Box>
     )
     if (u.viewing === AGENT_LIST) {
@@ -870,7 +880,10 @@ export const register: Register = (on, options) => {
       )
     }
     const a = u.agents.find(x => x.id === u.viewing)
-    if (!a) return <Box flexDirection="column">{tabs}<Text dimColor>Click a subagent name in the row above to see its work here.</Text></Box>
+    if (!a) {
+      const why = u.viewing ? "This subagent's work is no longer kept." : 'Click a subagent name in the row above to see its work here.'
+      return <Box flexDirection="column">{tabs}<Text dimColor>{why} ✕ close or Esc: back to main.</Text></Box>
+    }
     const tag = tagOf(a, u)
     const cp = ctxPercent(a, u)
     const found = await $.session.messages({ agentId: a.id }).catch(() => ({ deny: 'error' }) as const)

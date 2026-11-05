@@ -178,7 +178,7 @@ test('a failed run says so, with its elapsed time; closing the pane clears the v
   await closed.unmount()
 })
 
-test('elapsed reads in Korean units', () => {
+test('elapsed reads in compact units', () => {
   expect(elapsed(45_000)).toBe('45s')
   expect(elapsed(72_000)).toBe('1m 12s')
   expect(elapsed(3_780_000)).toBe('1h 3m')
@@ -222,4 +222,54 @@ test('subagent rows set to off draw no rows and no "more"', { options: { agentRo
   expect(await band.find({ type: 'Text', text: /①/ })).toBeUndefined()
   expect(await band.find({ type: 'Button', key: 'agent:more' })).toBeUndefined()
   await band.unmount()
+})
+
+test('a pane whose subagent is gone can still be closed, and /clear closes it', async ($, on) => {
+  let isUp = false
+  const closes: string[] = []
+  let roster = [{ id: 'a1', type: 'Explore', description: 'job a1', status: 'running' as const }]
+  on('agent.list', () => ({ value: roster }))
+  on('clock.now', () => ({ value: Date.UTC(2026, 9, 6, 10) }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('settings.read', () => ({ value: {} }))
+  on('session.usage', () => ({ value: null }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('command.run', () => ({ text: '' }))
+  on('session.end', () => ({ sessionId: 's1' }))
+  on('ui.panes', () => ({ value: isUp ? [{ id: 'agent-view', title: '', isShown: true, isFocused: false, isPlaced: true, plugin: 'token-usage' }] : [] }))
+  on('ui.open', () => ((isUp = true), { value: { isPlaced: true } }))
+  on('ui.close', (_$, e) => ((isUp = false), closes.push(e.id), { value: undefined }))
+  on('session.messages', () => ({ value: [] }))
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box key="engine" />
+  })
+  const PANE = { plugin: 'token-usage', surface: 'terminal', component: 'Pane', requestId: 'agent-view', props: {}, viewport: { columns: 60, rows: 20 } } as Parameters<typeof $.ui.mount>[0]
+  const open = async () => {
+    await $.tool.call({ tool: 'Read', file_path: '/repo/a.py', agentId: 'a1' } as Parameters<typeof $.tool.call>[0])
+    const band = await $.ui.mount({ plugin: 'token-usage', surface: 'terminal', ...BAND })
+    await band.press({ key: 'agent:a1' })
+    await band.unmount()
+    expect(isUp).toBe(true)
+  }
+
+  // The pane always has its own close control, so a lost focus (Esc goes elsewhere) never strands it.
+  await open()
+  const pane = await $.ui.mount(PANE)
+  await pane.press({ key: 'tab:close' })
+  await pane.unmount()
+  expect(isUp).toBe(false)
+
+  // /clear forgets every subagent: the pane showing one of them closes with it.
+  await open()
+  await $.session.end({ reason: 'clear' } as Parameters<typeof $.session.end>[0])
+  expect(isUp).toBe(false)
+
+  // /token-usage close closes the pane as well as collapsing the details.
+  roster = [{ id: 'a1', type: 'Explore', description: 'job a1', status: 'running' as const }]
+  await open()
+  await $.command.run({ command: 'token-usage', args: 'close' } as Parameters<typeof $.command.run>[0])
+  expect(isUp).toBe(false)
+  expect(closes.every(id => id === 'agent-view')).toBe(true)
 })
