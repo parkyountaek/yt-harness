@@ -34,7 +34,10 @@ def main():
              os.path.join(HOME, ".claude", "projects", "-other", "t.jsonl"): MARK,
              os.path.join(HOME, ".claude", "history.jsonl"): MARK, os.path.join(HOME, ".claude", "sessions", "1.json"): MARK,
              os.path.join(HOME, ".codex", "history.jsonl"): MARK, os.path.join(HOME, ".claude", "settings.json"): "{}",
-             os.path.join(HOME, ".codex", "config.toml"): "", os.path.join("/tmp", "yt-other-session", "x"): MARK}
+             os.path.join(HOME, ".codex", "config.toml"): "", os.path.join("/tmp", "yt-other-session", "x"): MARK,
+             os.path.join(HOME, ".claude", "skills", "mine", "SKILL.md"): MARK,
+             os.path.join(HOME, ".codex", "skills", "mine", "SKILL.md"): MARK,
+             os.path.join(HOME, ".codex", "skills", ".system", "builtin", "SKILL.md"): "builtin"}
     for path, text in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
@@ -82,11 +85,14 @@ def main():
             ("hidden", "read the session registry", f"cat {HOME}/.claude/sessions/1.json 2>&1"),
             ("allow", "write own transcript dir", f"touch {plat.claude_project_dir(os.path.join(work, 'out'))}/probe"),
             ("allow", "write ~/.claude.json", f"touch {HOME}/.claude.json"),
+            ("hidden", "read a user-level skill", f"cat {HOME}/.claude/skills/mine/SKILL.md 2>&1"),
         ],
         "codex": [
             ("deny", "write ~/.codex/config.toml", f"echo x >> {HOME}/.codex/config.toml"),
             ("hidden", "read ~/.codex/history.jsonl", f"cat {HOME}/.codex/history.jsonl 2>&1"),
             ("allow", "write ~/.codex/sessions", f"mkdir -p {HOME}/.codex/sessions && touch {HOME}/.codex/sessions/p"),
+            ("hidden", "read a user-level skill", f"cat {HOME}/.codex/skills/mine/SKILL.md 2>&1"),
+            ("allow", "read a built-in Codex skill (.system)", f"grep -q builtin {HOME}/.codex/skills/.system/builtin/SKILL.md"),
         ],
     }
     passed = failed = 0

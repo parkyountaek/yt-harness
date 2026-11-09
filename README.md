@@ -232,6 +232,36 @@ They stay out of sub-sessions twice over: the sub-session's `--settings` drops
 interface, so the parity check leaves `mods/` out. `tests/mods/run.sh` runs each
 mod's tests and `claude plugin validate`.
 
+## Code changes (`yt-code`, folderKind repo and worktree)
+
+A harness that works on a repository never gets the repository itself. List the
+repositories in `~/yt-local/config.json`:
+
+```json
+{ "repos": { "app": "~/projects/app" } }
+```
+
+`yt-spawn <id> yt-code --repo app` clones it with `git clone --shared` into
+`<task folder>/repo`. The clone has its own refs and new objects and reads the
+source's objects through alternates, so the sandbox opens `<source>/.git/objects`
+read-only and nothing else of the source.
+
+- `folderKind: repo` (read-only investigation): the clone is readable; only `out/` is writable.
+- `folderKind: worktree` (code changes): the clone is writable, on branch `yt/<id>` from the
+  source's HEAD. The sandbox policy names it `<repo>`. The `yt-code` harness (experimental)
+  commits there, never pushes, and reports the commits and checks in `result.md`.
+- `yt collect <id>` lists the branch's commits and diff size; `yt bring <id>` fetches the
+  branch into the source as `yt/<id>`. It never merges, checks out, or overwrites a branch.
+
+Git run on the clone outside the sandbox would read the clone's config, which the
+session could change (`core.fsmonitor`, diff drivers, hook paths). The clone's config,
+hooks, and `info/attributes` are fingerprinted at spawn; collect and bring refuse when
+they changed. Sub-sessions run git with `GIT_CONFIG_GLOBAL=/dev/null` (the sandbox
+hides `~/.gitconfig`); the human's name and email are copied into the clone's config.
+
+Verified live on both runtimes: the same one-line change, committed on the task branch,
+collected, and brought back as a branch.
+
 ## Knowledge vault (`yt-wiki`)
 
 A `folderKind: vault` harness works inside a named folder. The vaults are listed
@@ -278,7 +308,9 @@ Both runtimes run under one generated `sandbox-exec` profile
   how later sessions start.
 - **Reads** are denied for `$HOME`, `/Users`, `/Volumes`, and the per-user
   temp area, except for the task folder, yt-core, the harness, and what the
-  runtime needs. Other sessions' transcripts and history cannot be read.
+  runtime needs. Other sessions' transcripts and history cannot be read. User-level
+  skills (`~/.claude/skills`, `~/.codex/skills`, `~/.agents/skills`) are hidden from both
+  runtimes, since they differ per runtime; Codex's built-in `.system` skills stay readable.
 - **Escape channels** are blocked: tmux sockets, AppleEvents, and running
   `open`, `osascript`, `launchctl`, `crontab`, `at`, `screen`, `ssh`, `tmux`.
 - **Local services** are unreachable: unix-socket connections are denied except
@@ -394,6 +426,7 @@ python3 tests/lab/run.py             # roadmap frameworks: improve, eval, candid
 python3 tests/transfer/run.py        # yt-export / yt-import: packing, merging, rejection
 tests/mods/run.sh                    # interface mods: their own tests and plugin validate
 python3 tests/setup/run.py           # yt-setup's Codex status line step: sets, leaves, refuses
+python3 tests/repo/run.py            # repo and worktree: the clone, tamper checks, yt bring, its sandbox
 python3 tests/metrics/run.py         # same session as Claude and Codex logs -> same metrics
 python3 tests/guard/run.py           # yt-guard decisions, Claude- and Codex-shaped events
 python3 tests/contract/run.py         # same scenarios on Claude and Codex, fake runner, no model

@@ -4,11 +4,11 @@
 Usage:
   yt-status running
   yt-status waiting-human --question "<one sentence>"
-  yt-status done                      (out/result.md must already exist)
+  yt-status done                      (out/result.md must already exist and not be empty)
   yt-status failed --reason "<one sentence>"
 
 The task folder comes from $YT_TASK_DIR (set by yt-spawn).
-Exit codes: 0 recorded, 1 invalid state or arguments, or done without result.md.
+Exit codes: 0 recorded, 1 invalid state or arguments, or done without a non-empty result.md.
 """
 import os
 import sys
@@ -58,8 +58,9 @@ def main(argv):
             raise Refused(f"no status.json in {task_dir}/out")
         if status.get("state") in core.FINAL:
             raise Refused(f"task already {status['state']}; final states cannot change")
-        if state == "done" and not os.path.isfile(core.result_path(task_dir)):
-            raise Refused("write out/result.md before reporting done")
+        result = core.result_path(task_dir)
+        if state == "done" and not (os.path.isfile(result) and os.path.getsize(result) > 0):
+            raise Refused("write out/result.md (not empty) before reporting done")
         for key in EXTRA:
             status.pop(key, None)
         status.update(opts)

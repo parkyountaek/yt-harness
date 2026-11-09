@@ -268,8 +268,8 @@ def vaults():
             for k, v in ((read_json(CONFIG, {}) or {}).get("vaults") or {}).items()}
 
 
-def resolve_policy(harness, task_dir, vault=None):
-    """Sandbox paths with <task-folder> and <vault> filled in."""
+def resolve_policy(harness, task_dir, vault=None, repo=None):
+    """Sandbox paths with <task-folder>, <vault>, and <repo> (the task's clone) filled in."""
     sandbox = harness.get("sandbox") or {}
 
     def sub(paths):
@@ -279,6 +279,10 @@ def resolve_policy(harness, task_dir, vault=None):
                 if not vault:
                     raise ValueError("this harness needs a vault (yt-spawn --vault <name>)")
                 p = p.replace("<vault>", vault)
+            if "<repo>" in p:
+                if not repo:
+                    raise ValueError("this harness needs a repository (yt-spawn --repo <name>)")
+                p = p.replace("<repo>", repo)
             out.append(p.replace("<task-folder>", task_dir))
         return out
 

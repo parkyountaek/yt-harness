@@ -17,6 +17,18 @@
       "category": "Productivity"
     },
     {
+      "name": "yt-code",
+      "source": {
+        "source": "local",
+        "path": "./yt-code"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
       "name": "yt-ops",
       "source": {
         "source": "local",

@@ -93,6 +93,11 @@ def session_env(task_dir, tmp_dir):
         "TMPDIR": tmp_dir + "/",
         "CLAUDE_CODE_TMPDIR": tmp_dir,   # Claude's Bash tool keeps its cwd file here, not in /tmp
         "ENABLE_CLAUDEAI_MCP_SERVERS": "false",   # no claude.ai connectors (see CLAUDE_NO_MCP)
+        # The sandbox hides ~/.gitconfig, and git treats an unreadable global config as fatal.
+        # Identity for commits is written into a task clone's own config (gitwork.prepare).
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        # zsh makes here-document temp files under $TMPPREFIX (default /tmp/zsh), not $TMPDIR.
+        "TMPPREFIX": os.path.join(tmp_dir, "zsh"),
         "PATH": os.pathsep.join([os.path.join(core.CORE, "bin"), py_bin, os.environ.get("PATH", "")]),
     })
     return env
@@ -148,7 +153,7 @@ def find_codex_session(out_dir, since, timeout=30, scan=20):
 
 
 def start(task_id, harness_name, harness, runtime, runner_name, session_id, resume=False, answer=None,
-          vault=None):
+          vault=None, repo_source=None, repo_clone=None):
     """Wrap the runtime in the shared sandbox and start it with the runner. Returns (handle, session_id).
 
     answer: resume with the human's answer as the prompt (headless runner).
@@ -163,12 +168,15 @@ def start(task_id, harness_name, harness, runtime, runner_name, session_id, resu
         prompt = (RESUME_PROMPT if resume else START_PROMPT).format(task_dir=task_dir)
     interactive = getattr(runner, "INTERACTIVE", True)
     cmd = runtime_argv(runtime, harness_name, out_dir, session_id, prompt, resume, interactive)
-    policy = core.resolve_policy(harness, task_dir, vault)
+    policy = core.resolve_policy(harness, task_dir, vault, repo_clone)
     # The session also needs to read yt-core (for yt-status), the harness, and the Python install.
     extra_read = [core.CORE, core.harness_dir(harness_name), os.path.realpath(sys.base_prefix)]
     # yt-mask reuses the repo guard's patterns and the local blocked terms (read-only).
     extra_read += [p for p in (os.path.join(core.REPO, ".githooks"), os.path.join(core.LOCAL, "blocked-terms.txt"))
                    if os.path.exists(p)]
+    # A --shared clone reads the source's objects through alternates (read-only).
+    if repo_source:
+        extra_read.append(os.path.join(repo_source, ".git", "objects"))
     tmp_dir = os.path.join(task_dir, "tmp")
     os.makedirs(tmp_dir, exist_ok=True)
     wrapped = plat.sandbox_argv(policy, runtime, cmd, profile_dir=task_dir, extra_read=extra_read,

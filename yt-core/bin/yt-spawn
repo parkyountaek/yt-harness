@@ -3,7 +3,7 @@
 
 Usage:
   yt-spawn <task-id> <harness> [--runtime claude|codex] [--runner tmux|headless|orca] [--experimental]
-           [--deadline 30m|2h|<ISO 8601>] [--brief <file>] [--vault <name>]
+           [--deadline 30m|2h|<ISO 8601>] [--brief <file>] [--vault <name>] [--repo <name>]
 
 Task folder: ~/yt-work/<task-id>/
   in/        inputs prepared by the human (read-only to the session)
@@ -12,7 +12,10 @@ Task folder: ~/yt-work/<task-id>/
   TASK.md    work order generated here; identical for every runtime
 
 The brief (goal, constraints, done criteria) comes from --brief, or from
-in/BRIEF.md when --brief is omitted. A folderKind: vault harness also needs
+in/BRIEF.md when --brief is omitted. A folderKind: repo or worktree harness needs
+--repo <name>, one of "repos" in ~/yt-local/config.json: the session works on a
+private clone in <task folder>/repo (worktree: on branch yt/<task id>, brought back
+with `yt bring`), never on the repository itself. A folderKind: vault harness also needs
 --vault <name>, one of "vaults" in ~/yt-local/config.json; the session may read
 and write inside that folder.
 
@@ -26,6 +29,7 @@ import uuid
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
 from ytlib import core  # noqa: E402
+from ytlib import gitwork  # noqa: E402
 from ytlib import launch  # noqa: E402
 from ytlib import parity  # noqa: E402
 from ytlib import platform as ytplatform  # noqa: E402
@@ -63,6 +67,21 @@ coordinator's conversation; everything you need is in this file.
 STARTING_TIMEOUT = 120  # seconds; a reservation older than this no longer holds a slot
 
 
+def folder_line(vault, source, kind, task_dir, task_id):
+    """The work order's line for a vault or a repository clone; identical for every runtime."""
+    if vault:
+        return f"- Vault (read and write): {vault}\n"
+    if not source:
+        return ""
+    clone = os.path.join(task_dir, gitwork.CLONE)
+    if kind == "repo":
+        return (f"- Repository (read-only private clone of {source}): {clone}\n"
+                "- Follow the repository's own contributor rules (AGENTS.md, CLAUDE.md, README) as part of this order.\n")
+    return (f"- Repository (your private clone of {source}, branch {gitwork.BRANCH.format(task_id=task_id)}): {clone}\n"
+            "- Make the change in the clone and commit it on that branch; never push. Follow the repository's own\n"
+            "  contributor rules (AGENTS.md, CLAUDE.md, README) as part of this order.\n")
+
+
 def fail(msg, code=1):
     print(f"yt-spawn: {msg}", file=sys.stderr)
     return code
@@ -84,6 +103,7 @@ def main(argv):
     ap.add_argument("--deadline")
     ap.add_argument("--brief")
     ap.add_argument("--vault", help="vault name for folderKind: vault harnesses")
+    ap.add_argument("--repo", help="repository name for folderKind: repo or worktree harnesses")
     ap.add_argument("--experimental", action="store_true", help="allow a harness marked experimental: true")
     args = ap.parse_args(argv)
 
@@ -107,8 +127,20 @@ def main(argv):
         return fail(f"harness {args.harness} is experimental; pass --experimental to use it for this task")
     if args.harness in core.disabled_harnesses():
         return fail(f"harness {args.harness} is turned off; `yt harness on {args.harness}` to use it")
-    vault = None
-    if harness.get("folderKind") == "vault":
+    vault = source = None
+    kind = harness.get("folderKind")
+    if args.repo and kind not in ("repo", "worktree"):
+        return fail(f"harness {args.harness} does not use a repository")
+    if kind in ("repo", "worktree"):
+        known_repos = gitwork.repos()
+        if args.repo not in known_repos:
+            return fail(f"harness {args.harness} needs --repo <name>; known: {', '.join(known_repos) or 'none'} "
+                        "(add one under \"repos\" in ~/yt-local/config.json)")
+        source = known_repos[args.repo]
+        problem = gitwork.source_problem(source)
+        if problem:
+            return fail(problem)
+    elif kind == "vault":
         known = core.vaults()
         if args.vault not in known:
             return fail(f"harness {args.harness} needs --vault <name>; known: {', '.join(known) or 'none'} "
@@ -116,9 +148,9 @@ def main(argv):
         vault = known[args.vault]
         if not (os.path.isdir(vault) and vault.startswith(core.HOME + "/")) or core.REPO.startswith(vault + "/"):
             return fail(f"vault {vault} must be an existing folder inside $HOME and must not contain the repo")
-    elif harness.get("folderKind") != "neutral":
-        return fail(f"folderKind {harness.get('folderKind')!r} is not implemented yet (neutral or vault)")
-    elif args.vault:
+    elif kind != "neutral":
+        return fail(f"folderKind {kind!r} is not implemented (neutral, vault, repo, worktree)")
+    if args.vault and kind != "vault":
         return fail(f"harness {args.harness} does not use a vault")
     if args.runtime == "codex":
         problem = launch.codex_plugin_problem(args.harness, harness.get("version"))
@@ -160,7 +192,7 @@ def main(argv):
             f.write(TASK_TEMPLATE.format(task_id=args.task_id, harness=args.harness,
                                          version=harness.get("version"), purpose=harness.get("purpose"),
                                          task_dir=task_dir, deadline=core.iso(deadline), brief=brief,
-                                         vault_line=f"- Vault (read and write): {vault}\n" if vault else ""))
+                                         vault_line=folder_line(vault, source, kind, task_dir, args.task_id)))
         core.write_status(task_dir, {
             "schema": 1, "taskId": args.task_id,
             "runner": args.runner, "runnerHandle": None,
@@ -171,17 +203,32 @@ def main(argv):
         sessions[args.task_id] = {"taskId": args.task_id, "harness": args.harness, "runtime": args.runtime,
                                   "runner": args.runner, "runnerHandle": None, "runtimeSessionId": session_id,
                                   "deadline": core.iso(deadline), "startedAt": core.iso(start), "starting": True,
-                                  **({"vault": args.vault, "vaultPath": vault} if vault else {})}
+                                  **({"vault": args.vault, "vaultPath": vault} if vault else {}),
+                                  **({"repo": args.repo} if source else {})}
         core.save_sessions(reg)
 
-    # Start outside the lock: finding the Codex session id can take a while.
+    # The clone is made outside the lock (a large repository takes a while).
     error = None
+    repo = {}
+    if source:
+        try:
+            repo = gitwork.prepare(args.task_id, source, writable=kind == "worktree")
+        except Exception as e:  # noqa: BLE001  a failed clone must end in a recorded state
+            error = f"clone failed: {e}"
+        with core.locked(core.REGISTRY_LOCK):
+            reg = core.load_sessions()
+            reg["sessions"][args.task_id].update(repo)
+            core.save_sessions(reg)
+
+    # Start outside the lock: finding the Codex session id can take a while.
     handle = None
-    try:
-        handle, session_id = launch.start(args.task_id, args.harness, harness, args.runtime,
-                                          args.runner, session_id, vault=vault)
-    except Exception as e:  # noqa: BLE001  any start failure must end in a recorded state
-        error = str(e) or e.__class__.__name__
+    if not error:
+        try:
+            handle, session_id = launch.start(args.task_id, args.harness, harness, args.runtime,
+                                              args.runner, session_id, vault=vault, repo_source=repo.get("repoSource"),
+                                              repo_clone=repo.get("repoClone"))
+        except Exception as e:  # noqa: BLE001  any start failure must end in a recorded state
+            error = str(e) or e.__class__.__name__
 
     with core.locked(core.REGISTRY_LOCK):
         reg = core.load_sessions()

@@ -10,6 +10,11 @@
       "source": "./yt-core"
     },
     {
+      "name": "yt-code",
+      "description": "Code change harness: works on a private clone, commits on branch yt/<task id>, never pushes",
+      "source": "./yt-code"
+    },
+    {
       "name": "yt-ops",
       "description": "First example harness: read-only investigation",
       "source": "./yt-ops"

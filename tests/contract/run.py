@@ -191,6 +191,8 @@ def scenario(rt):
     obs["question kept"] = (core.read_status(task) or {}).get("question")
     obs["back to running"] = (yt_status(a, "running"), state(a), "question" in core.read_status(task))
     obs["done without result"] = (yt_status(a, "done"), state(a))
+    open(core.result_path(task), "w").close()   # e.g. `cat > result.md <<EOF` whose here-doc failed
+    obs["done with an empty result"] = (yt_status(a, "done"), state(a))
     write_result(a)
     obs["done"] = (yt_status(a, "done"), state(a))
     obs["change after done"] = (yt_status(a, "running"), state(a))
@@ -267,7 +269,7 @@ EXPECTED = {
     "spawn": 0, "env leaks nothing": True, "user hooks off": True, "wrapper": WRAPPER, "web tools on": True, "MCP and connectors off": True, "initial state": "running", "has session id": True,
     "duplicate spawn": 1, "waiting without question": 1, "waiting": (0, "waiting-human"),
     "question kept": "Which file?", "back to running": (0, "running", False),
-    "done without result": (1, "running"), "done": (0, "done"), "change after done": (1, "done"),
+    "done without result": (1, "running"), "done with an empty result": (1, "running"), "done": (0, "done"), "change after done": (1, "done"),
     "bad state": 1, "failed without reason": 1, "failed": (0, "failed"), "change after failed": (1, "failed"),
     "stale": ("stale", "waiting-human"), "resume while alive": 1, "stop": (0, False), "resume": 0,
     "state after resume": ("waiting-human", False, False), "deadline extended": True,

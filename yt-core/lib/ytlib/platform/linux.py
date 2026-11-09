@@ -24,9 +24,12 @@ RUNTIME_PROTECTED = {
 }
 # Hidden: other sessions' transcripts, history, and the session registry (peer messaging).
 RUNTIME_PRIVATE_DIRS = {
-    "claude": [f"{HOME}/.claude/{n}" for n in ("projects", "file-history", "backups", "sessions")],
-    "codex": [f"{HOME}/.codex/backups"],
+    "claude": [f"{HOME}/.claude/{n}" for n in ("projects", "file-history", "backups", "sessions", "skills")],
+    "codex": [f"{HOME}/.codex/backups", f"{HOME}/.codex/skills"],
 }
+# User-level skills are hidden for both runtimes (see macos.RUNTIME_SHOWN); Codex's
+# built-in skills are bound back read-only.
+RUNTIME_SHOWN = {"codex": [f"{HOME}/.codex/skills/.system"]}
 RUNTIME_PRIVATE_FILES = {"claude": [f"{HOME}/.claude/history.jsonl"], "codex": [f"{HOME}/.codex/history.jsonl"]}
 EMPTY_DIRS = ["/home", "/root", "/tmp", "/var/tmp", "/run", "/mnt", "/media", "/srv"]
 # Kept inside /run so DNS still resolves.
@@ -132,6 +135,8 @@ def sandbox_args(policy, runtime, extra_read=(), tmp_dir=None, cwd=None):
     for p in RUNTIME_PRIVATE_FILES.get(runtime, []):
         if os.path.isfile(p):
             a += ["--ro-bind", "/dev/null", p]
+    for p in RUNTIME_SHOWN.get(runtime, []):
+        a += ["--ro-bind-try", p, p]
     if runtime == "claude" and cwd:
         own = claude_project_dir(cwd)
         os.makedirs(own, exist_ok=True)

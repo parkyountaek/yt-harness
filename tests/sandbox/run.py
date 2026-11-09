@@ -102,8 +102,18 @@ def main():
         ("exec-denied", "crontab", "crontab -l"),
         ("exec-denied", "ssh", "ssh -V"),
     ]
+    # User-level skills are hidden from both runtimes; Codex's built-in .system skills stay readable.
+    skill_probes = {rt: os.path.join(HOME, f".{rt}", "skills", f"yt-sandbox-probe-{os.getpid()}") for rt in ("claude", "codex")}
+    for d in skill_probes.values():
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "SKILL.md"), "w") as f:
+            f.write("probe\n")
+    system_skill = next((os.path.join(r, n) for r, _, fs in os.walk(os.path.join(HOME, ".codex", "skills", ".system"))
+                         for n in fs if n == "SKILL.md"), None)
     per_runtime = {
         "claude": [
+            ("deny", "read a user-level skill (~/.claude/skills)", f"cat {skill_probes['claude']}/SKILL.md"),
+            ("allow", "list ~/.claude/skills", f"ls {HOME}/.claude/skills"),
             ("deny", "write ~/.claude/settings.json", f": >> {HOME}/.claude/settings.json"),
             ("deny", "write ~/.claude/CLAUDE.md", f": >> {HOME}/.claude/CLAUDE.md"),
             ("deny", "create ~/.claude/hooks/x", f"mkdir -p {HOME}/.claude/hooks && : > {HOME}/.claude/hooks/x"),
@@ -115,6 +125,9 @@ def main():
             ("deny", "write another session's Claude temp dir", f"mkdir -p /private/tmp/claude-{os.getuid()}/yt-other-probe"),
         ],
         "codex": [
+            ("deny", "read a user-level skill (~/.codex/skills)", f"cat {skill_probes['codex']}/SKILL.md"),
+            ("allow", "list ~/.codex/skills", f"ls {HOME}/.codex/skills"),
+            *([("allow", "read a built-in Codex skill (.system)", f"cat {system_skill}")] if system_skill else []),
             ("deny", "write ~/.codex/config.toml", f": >> {HOME}/.codex/config.toml"),
             ("deny", "write ~/.codex/hooks.json", f": >> {HOME}/.codex/hooks.json"),
             ("deny", "write ~/.codex/AGENTS.md", f": >> {HOME}/.codex/AGENTS.md"),
@@ -152,6 +165,8 @@ def main():
             os.remove(peer_sock)
         subprocess.run(["tmux", "kill-session", "-t", f"={host}"], capture_output=True)
         shutil.rmtree(work, ignore_errors=True)
+        for d in skill_probes.values():
+            shutil.rmtree(d, ignore_errors=True)
         shutil.rmtree(outside, ignore_errors=True)
         shutil.rmtree(own_claude, ignore_errors=True)
         shutil.rmtree(own_tmp, ignore_errors=True)

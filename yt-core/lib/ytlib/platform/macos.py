@@ -35,8 +35,18 @@ RUNTIME_PROTECTED = {
 # coordinator's conversation. The session's own transcript folder is re-allowed.
 RUNTIME_PRIVATE = {
     "claude": [("subpath", f"{HOME}/.claude/projects"), ("literal", f"{HOME}/.claude/history.jsonl"),
-               ("subpath", f"{HOME}/.claude/file-history"), ("subpath", f"{HOME}/.claude/backups")],
-    "codex": [("literal", f"{HOME}/.codex/history.jsonl"), ("subpath", f"{HOME}/.codex/backups")],
+               ("subpath", f"{HOME}/.claude/file-history"), ("subpath", f"{HOME}/.claude/backups"),
+               ("subpath", f"{HOME}/.claude/skills")],
+    "codex": [("literal", f"{HOME}/.codex/history.jsonl"), ("subpath", f"{HOME}/.codex/backups"),
+              ("subpath", f"{HOME}/.codex/skills")],
+}
+# User-level skills differ per runtime (and ~/.agents/skills is outside both), so neither
+# runtime loads them in a sub-session; the harness plugin carries the task's skills.
+# Kept readable: the folder listing, and the skills Codex ships in .system (built in, like
+# Claude's bundled skills, which are not on disk).
+RUNTIME_SHOWN = {
+    "claude": [("literal", f"{HOME}/.claude/skills")],
+    "codex": [("literal", f"{HOME}/.codex/skills"), ("subpath", f"{HOME}/.codex/skills/.system")],
 }
 
 # Peer messaging between local Claude sessions: each session registers in
@@ -179,7 +189,7 @@ def sandbox_profile(policy, runtime, extra_read=(), tmp_dir=None, cwd=None):
         _rule("deny", "file-read-data", [("subpath", r) for r in private_read_roots()]),
         _rule("allow", "file-read-data", reads),
         _rule("deny", "file-read-data", private),
-        _rule("allow", "file-read-data", own + own_read_only),
+        _rule("allow", "file-read-data", own + own_read_only + RUNTIME_SHOWN.get(runtime, [])),
         # writes
         "(deny file-write*)",
         _rule("allow", "file-write*", writes),

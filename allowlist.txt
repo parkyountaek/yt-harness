@@ -21,3 +21,4 @@ yt-quality/
 yt-writing/
 yt-wiki/
 mods/
+yt-code/

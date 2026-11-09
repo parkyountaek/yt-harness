@@ -15,6 +15,8 @@ Usage:
   yt forget <task-id>                      drop a stopped or finished task from the session list
   yt route [<task-kind>]                   show the task-kind -> harness routes (~/yt-local/routes.json)
   yt collect <task-id>                     check the result against the contract and print it
+  yt bring <task-id>                       worktree task: fetch branch yt/<task-id> into the source
+                                           repository as a new branch (never merges or overwrites)
   yt answer <task-id> "<text>"             type the human's answer into a waiting-human session
   yt metrics [--days N]                    per harness and runtime: tasks, success rate, tokens, turns
   yt harness list                          harnesses: version, on/off, Codex copy, routes
@@ -39,6 +41,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
 from ytlib import core  # noqa: E402
+from ytlib import gitwork  # noqa: E402
 from ytlib import launch  # noqa: E402
 from ytlib import lab  # noqa: E402
 from ytlib import metrics  # noqa: E402
@@ -177,7 +180,8 @@ def cmd_resume(task_id, deadline_arg=None, answer=None):
     error, handle = None, None
     try:
         handle, _ = launch.start(task_id, e["harness"], harness, e["runtime"], e["runner"], sid, resume=True,
-                                 answer=answer, vault=e.get("vaultPath"))
+                                 answer=answer, vault=e.get("vaultPath"), repo_source=e.get("repoSource"),
+                                 repo_clone=e.get("repoClone"))
     except Exception as ex:  # noqa: BLE001
         error = str(ex) or ex.__class__.__name__
 
@@ -280,9 +284,32 @@ def cmd_collect(task_id):
                  else " -> nothing recorded (an eval errored)"))
         if verdict:
             lab.eval_record(task_id, e, status, verdict, judge="deterministic")
+    if e.get("repoBranch"):
+        try:
+            print("\n".join("# " + line for line in gitwork.summary(e)))
+            print(f"# bring it into {e['repoSource']} as a branch: yt bring {task_id}")
+        except RuntimeError as ex:
+            print(f"yt: {task_id}: {ex}", file=sys.stderr)
+            return 1
     print()
     with open(path, encoding="utf-8", errors="replace") as f:
         print(f.read().rstrip())
+    return 0
+
+
+def cmd_bring(task_id):
+    """Fetch a worktree task's branch into the source repository (never merges)."""
+    e = core.load_sessions()["sessions"].get(task_id)
+    if not e:
+        raise KeyError(task_id)
+    if not e.get("repoClone"):
+        return fail(f"{task_id} did not work on a repository")
+    try:
+        branch = gitwork.bring(e)
+    except RuntimeError as ex:
+        return fail(str(ex))
+    core.log_event("bring", taskId=task_id)
+    print(f"yt: {e['repoSource']} now has branch {branch}; review and merge it yourself")
     return 0
 
 
@@ -459,8 +486,8 @@ def main(argv):
             return cmd_collect(rest[0])
         if cmd == "answer" and len(rest) == 2:
             return cmd_answer(rest[0], rest[1])
-        if cmd in ("attach", "stop", "forget") and len(rest) == 1:
-            return {"attach": cmd_attach, "stop": cmd_stop, "forget": cmd_forget}[cmd](rest[0])
+        if cmd in ("attach", "stop", "forget", "bring") and len(rest) == 1:
+            return {"attach": cmd_attach, "stop": cmd_stop, "forget": cmd_forget, "bring": cmd_bring}[cmd](rest[0])
     except KeyError as e:
         return fail(f"unknown task {e.args[0]}")
     except TimeoutError as e:
