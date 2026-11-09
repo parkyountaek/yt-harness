@@ -148,6 +148,21 @@ def scoped(src):
     except RuntimeError:
         check("scope: bring refuses an out-of-scope branch", True)
     check("scope: an in-scope branch can be brought", gitwork.bring(ok) == "yt/sc-ok")
+    dot = attempt("dot", [("h/skills/s/.gitattributes", None, "* diff=x\n")])
+    check("scope: a dotfile inside an allowed folder is refused",
+          any("dotfiles" in p for p in gitwork.scope_problems(dot)), gitwork.scope_problems(dot))
+    fake_global = os.path.join(ROOT, "global.gitconfig")
+    with open(fake_global, "w") as f:
+        f.write("[yt]\n\tprobe = from-the-human-config\n")
+    old_env = os.environ.get("GIT_CONFIG_GLOBAL")
+    os.environ["GIT_CONFIG_GLOBAL"] = fake_global
+    try:
+        seen = gitwork._git("config", "--get", "yt.probe", cwd=ok["repoClone"], check=False)
+        seen_human = gitwork._git("config", "--get", "yt.probe", cwd=ok["repoClone"], check=False, human_config=True)
+    finally:
+        os.environ.pop("GIT_CONFIG_GLOBAL") if old_env is None else os.environ.update(GIT_CONFIG_GLOBAL=old_env)
+    check("isolation: git on a clone ignores the human's global config", seen == "" and seen_human == "from-the-human-config",
+          (seen, seen_human))
 
 
 def sandboxed(src):

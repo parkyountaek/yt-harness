@@ -48,8 +48,14 @@ def source_problem(path):
     return None
 
 
-def _git(*args, cwd=None, check=True):
-    r = subprocess.run(["git", *SAFE_GIT, *args], cwd=cwd, capture_output=True, text=True, timeout=300)
+# Git that yt runs on a clone loads no user or system config either: a .gitattributes the
+# session planted could otherwise call drivers the human configured (lfs, textconv, ...).
+ISOLATED = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0"}
+
+
+def _git(*args, cwd=None, check=True, human_config=False):
+    env = dict(os.environ) if human_config else {**os.environ, **ISOLATED}
+    r = subprocess.run(["git", *SAFE_GIT, *args], cwd=cwd, capture_output=True, text=True, timeout=300, env=env)
     if check and r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args[:3])} failed: {(r.stderr or r.stdout).strip()[:300]}")
     return r.stdout.strip()
@@ -91,7 +97,7 @@ def prepare(task_id, source, writable, scope=None):
     _git("config", "core.attributesFile", os.devnull, cwd=clone)
     # Commits in the sandbox cannot read ~/.gitconfig: carry the human's identity over.
     for key in ("user.name", "user.email"):
-        value = _git("config", "--get", key, cwd=source, check=False)
+        value = _git("config", "--get", key, cwd=source, check=False, human_config=True)
         if value:
             _git("config", key, value, cwd=clone)
     base = _git("rev-parse", "HEAD", cwd=clone)
@@ -133,6 +139,8 @@ def scope_problems(entry):
             changed = [d for d in diff if d[:1] in "+-" and not d.startswith(("+++", "---"))]
             if any(not d[1:].startswith("version:") for d in changed):
                 out.append(f"{path}: only its version line may change")
+        elif any(part.startswith(".") for part in path.split("/")):
+            out.append(f"{path}: dotfiles (.gitattributes, .gitignore, ...) are never in scope")
         elif not any(path == a or (a.endswith("/") and path.startswith(a)) for a in allowed):
             out.append(f"{path}: outside the task's scope")
     return out

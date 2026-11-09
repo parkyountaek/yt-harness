@@ -337,6 +337,48 @@ def test_vault():
         shutil.rmtree(vault, ignore_errors=True)
 
 
+def test_repo():
+    """folderKind: worktree — the clone, its sandbox, the same work order, and bring only once stopped."""
+    src = os.path.join(core.HOME, f"yt-contract-src-{os.getpid()}")
+    os.makedirs(src, exist_ok=True)
+    try:
+        for args in (["init", "-q", "-b", "main"], ["-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                                                     "commit", "-q", "--allow-empty", "-m", "first"]):
+            subprocess.run(["git", *args], cwd=src, check=True, capture_output=True)
+        core.write_json_atomic(core.CONFIG, {"repos": {"app": src}})
+        brief = os.path.join(ROOT, "brief.md")
+        orders = {}
+        for rt in RUNTIMES:
+            stop_all()
+            run = lambda tid, *extra: quiet(spawn_mod.main, [tid, "yt-code", "--runtime", rt, "--runner", "fake",  # noqa: E731
+                                                             "--deadline", FIXED_DEADLINE, "--brief", brief, *extra])[0]
+            check(f"{rt}: worktree harness refuses to start without --repo", run(f"nr-{rt}", "--experimental") == 1)
+            check(f"{rt}: unknown repo refused", run(f"ur-{rt}", "--experimental", "--repo", "nope") == 1)
+            check(f"{rt}: --vault refused for a repo harness", run(f"rv-{rt}", "--experimental", "--repo", "app",
+                                                                   "--vault", "v") == 1)
+            tid = f"wt-{rt}"
+            check(f"{rt}: worktree harness starts", run(tid, "--experimental", "--repo", "app") == 0)
+            e = entry(tid)
+            clone = os.path.join(core.task_dir(tid), "repo")
+            check(f"{rt}: the clone and its branch are in the session list",
+                  e.get("repoClone") == clone and e.get("repoBranch") == f"yt/{tid}" and e.get("repoFingerprint"))
+            gen = os.path.join(core.task_dir(tid), f"sandbox-{rt}." + ("bwrap" if PLATFORM == "linux" else "sb")
+                               + ".generated")
+            text = open(gen, encoding="utf-8").read()
+            check(f"{rt}: sandbox writes the clone and reads the source's objects only",
+                  clone in text and os.path.join(os.path.realpath(src), ".git", "objects") in text)
+            with open(os.path.join(core.task_dir(tid), "TASK.md"), encoding="utf-8") as fh:
+                orders[rt] = fh.read().replace(rt, "<rt>")
+            check(f"{rt}: bring refused while the session runs", yt("bring", tid) == 1)
+            stop_all()
+            check(f"{rt}: bring works once stopped (empty branch is fetched as is)", yt("bring", tid) == 0)
+            check(f"{rt}: resume keeps the clone", yt("resume", tid) == 0 and clone in open(gen, encoding="utf-8").read())
+            stop_all()
+        check("equivalent: same work order for a repository task", orders.get("claude") == orders.get("codex"))
+    finally:
+        shutil.rmtree(src, ignore_errors=True)
+
+
 def test_build():
     r = subprocess.run([sys.executable, os.path.join(BIN, "yt-build"), "--check"], capture_output=True, text=True)
     check("yt-build --check: runtime manifests match neutral sources", r.returncode == 0, r.stderr.strip())
@@ -447,6 +489,7 @@ def main(argv):
     try:
         test_scenarios()
         test_vault()
+        test_repo()
         test_build()
         test_parity()
         if "--live" in argv:

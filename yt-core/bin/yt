@@ -288,7 +288,9 @@ def cmd_collect(task_id):
                  else " -> nothing recorded (an eval errored)"))
         if verdict:
             lab.eval_record(task_id, e, status, verdict, judge="deterministic")
-    if e.get("repoBranch"):
+    if e.get("repoBranch") and is_alive(e, runners.load(e["runner"])):
+        print(f"# the session is still running: `yt stop {task_id}`, then collect again to see its branch")
+    elif e.get("repoBranch"):
         try:
             lines = gitwork.summary(e)
             print("\n".join("# " + line for line in lines))
@@ -310,6 +312,8 @@ def cmd_bring(task_id):
         raise KeyError(task_id)
     if not e.get("repoClone"):
         return fail(f"{task_id} did not work on a repository")
+    if is_alive(e, runners.load(e["runner"])):
+        return fail(f"{task_id} is still running; `yt stop {task_id}` first, so its clone cannot change")
     try:
         branch = gitwork.bring(e)
     except RuntimeError as ex:
