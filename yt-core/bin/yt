@@ -42,6 +42,7 @@ import json
 import subprocess
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
 from ytlib import core  # noqa: E402
@@ -117,6 +118,18 @@ def entry_and_runner(task_id):
 
 def is_alive(e, runner):
     return bool(e.get("runnerHandle")) and runner.alive(e["runnerHandle"])
+
+
+def settled(e, wait=30):
+    """True once the session's process is gone. A headless run can take a few seconds to exit
+    after it reported done, so wait for it; an interactive session stays until `yt stop`."""
+    runner = runners.load(e["runner"])
+    end = time.time() + (wait if not getattr(runner, "INTERACTIVE", True) else 0)
+    while is_alive(e, runner):
+        if time.time() >= end:
+            return False
+        time.sleep(1)
+    return True
 
 
 def cmd_attach(task_id):
@@ -288,7 +301,7 @@ def cmd_collect(task_id):
                  else " -> nothing recorded (an eval errored)"))
         if verdict:
             lab.eval_record(task_id, e, status, verdict, judge="deterministic")
-    if e.get("repoBranch") and is_alive(e, runners.load(e["runner"])):
+    if e.get("repoBranch") and not settled(e):
         print(f"# the session is still running: `yt stop {task_id}`, then collect again to see its branch")
     elif e.get("repoBranch"):
         try:
@@ -312,7 +325,7 @@ def cmd_bring(task_id):
         raise KeyError(task_id)
     if not e.get("repoClone"):
         return fail(f"{task_id} did not work on a repository")
-    if is_alive(e, runners.load(e["runner"])):
+    if not settled(e):
         return fail(f"{task_id} is still running; `yt stop {task_id}` first, so its clone cannot change")
     try:
         branch = gitwork.bring(e)
