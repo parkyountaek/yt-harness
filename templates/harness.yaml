@@ -10,6 +10,6 @@ sandbox:                   # enforced for every runtime by the shared sandbox-ex
   read: ["<task-folder>"]  # everything else under $HOME is denied
   write: ["<task-folder>/out/"]
 deadlineDefault: 2h
-evals: []
+evals: []                  # scripts in this folder that print pass|fail; yt collect runs them
 runtimes: []               # list only runtimes that passed the equivalence tests
 experimental: true

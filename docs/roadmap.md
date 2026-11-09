@@ -36,8 +36,13 @@ to `~/yt-local/data/evals.jsonl`:
 
 The last verdict per task wins. `--fixed` marks that the human had to correct the
 result. Free-text notes are refused on purpose. Deterministic checks belong in a
-harness's `evals:` list in `harness.yaml` (scripts that print pass or fail); they
-are not run automatically yet.
+harness's `evals:` list in `harness.yaml`: paths inside the harness folder, such as
+`evals: ["evals/has-title.py"]`. `yt collect` runs them once the result meets the
+contract. Each gets the task folder as its argument, runs in `out/` with a minimal
+environment and a 60-second limit, and prints `pass` or `fail` on its last line. Any
+fail records `fail`, all pass records `pass` (judge `deterministic`); an error (a
+crash, no verdict, a path outside the harness) records nothing. A later `yt eval`
+replaces it. Only the verdict is kept, never the script's output.
 
 ## Self-improvement
 

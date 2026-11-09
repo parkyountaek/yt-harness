@@ -271,7 +271,16 @@ def cmd_collect(task_id):
     core.log_event("collect", taskId=task_id, bytes=size)
     metrics.record(task_id, e, status)
     print(f"# {task_id} ({e['harness']} {status.get('harnessVersion', '')}, {e['runtime']}): done")
-    print(f"# result: {path}\n")
+    print(f"# result: {path}")
+    evals = lab.run_evals(core.load_harness(e["harness"]), core.harness_dir(e["harness"]), core.task_dir(task_id))
+    if evals:
+        verdict = lab.eval_verdict(evals)
+        print("# evals: " + ", ".join(f"{name} {state}" for name, state in evals)
+              + (f" -> recorded {verdict} (judge deterministic; yt eval overrides)" if verdict
+                 else " -> nothing recorded (an eval errored)"))
+        if verdict:
+            lab.eval_record(task_id, e, status, verdict, judge="deterministic")
+    print()
     with open(path, encoding="utf-8", errors="replace") as f:
         print(f.read().rstrip())
     return 0

@@ -155,3 +155,57 @@ def case_card(task_id, entry, status):
             "resumes": sum(d.get("event") == "resume" for d in events),
             "steps": m.get("toolCalls"), "turns": m.get("turns"), "tokens": m.get("tokens"),
             "verdict": evals.get("verdict"), "judge": evals.get("judge"), "humanFixed": evals.get("humanFixed")}
+
+
+# ---------- deterministic evals ----------
+
+EVAL_TIMEOUT = 60
+EVAL_ENV = ("PATH", "HOME", "LANG", "TZ")
+
+
+def _eval_argv(path):
+    if path.endswith(".py"):
+        return [sys.executable, path]
+    if path.endswith(".sh"):
+        return ["sh", path]
+    return [path]
+
+
+def run_evals(harness, harness_path, task_dir):
+    """Run the harness's `evals:` scripts on a finished task: [(script, pass|fail|error)].
+
+    Each entry is a path inside the harness folder. The script gets the task folder as
+    its one argument, runs in out/ with a minimal environment and a time limit, and
+    prints pass or fail on its last line. Anything else, a non-zero exit, or a path
+    outside the harness is an error. Scripts are reviewed repo code; the task's files
+    are data to them. Only the verdict is kept, never the script's output.
+    """
+    out = []
+    root = os.path.realpath(harness_path)
+    env = {k: os.environ[k] for k in EVAL_ENV if k in os.environ}
+    env["YT_TASK_DIR"] = task_dir
+    for rel in harness.get("evals") or []:
+        path = os.path.realpath(os.path.join(root, str(rel)))
+        if not path.startswith(root + os.sep) or not os.path.isfile(path):
+            out.append((str(rel), "error"))
+            continue
+        try:
+            r = subprocess.run(_eval_argv(path) + [task_dir], cwd=os.path.join(task_dir, "out"), env=env,
+                               stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=EVAL_TIMEOUT)
+        except (OSError, subprocess.TimeoutExpired):
+            out.append((str(rel), "error"))
+            continue
+        lines = [line.strip() for line in r.stdout.splitlines() if line.strip()]
+        last = lines[-1] if lines else ""
+        out.append((str(rel), last if r.returncode == 0 and last in VERDICTS else "error"))
+    return out
+
+
+def eval_verdict(results):
+    """One verdict for the task: fail if any script failed, pass if all passed, None otherwise."""
+    states = [s for _, s in results]
+    if "fail" in states:
+        return "fail"
+    if states and all(s == "pass" for s in states):
+        return "pass"
+    return None

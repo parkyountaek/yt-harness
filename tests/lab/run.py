@@ -121,6 +121,31 @@ def main():
         f.write(json.dumps({"at": "2026-01-01T00:00:00+00:00", "event": "spawn", "ok": True, "harness": "yt-ops"}) + "\n")
     _, retire = panel.harness_rows()
     check("panel: a harness unused for 60 days is a retire hint", any(r.startswith("yt-ops:") for r in retire))
+    # deterministic evals: scripts in the harness folder judge a finished task
+    hdir = os.path.join(LOCAL, "fake-harness")
+    os.makedirs(os.path.join(hdir, "evals"))
+    scripts = {"evals/has-title.py": "import sys, pathlib\n"
+                                     "t = pathlib.Path(sys.argv[1], 'out', 'result.md').read_text()\n"
+                                     "print('noise'); print('pass' if 'title' in t else 'fail')\n",
+               "evals/long.sh": 'wc -l < "$1/out/result.md" | awk \'{print ($1 >= 5 ? "pass" : "fail")}\'\n',
+               "evals/crash.py": "raise SystemExit(3)\n"}
+    for rel, body in scripts.items():
+        with open(os.path.join(hdir, rel), "w") as f:
+            f.write(body)
+    tdir = core.task_dir("e-1")
+    os.makedirs(os.path.join(tdir, "out"), exist_ok=True)
+    with open(os.path.join(tdir, "out", "result.md"), "w") as f:
+        f.write("title: x\nlines: 3\n")
+    got = dict(lab.run_evals({"evals": ["evals/has-title.py", "evals/long.sh"]}, hdir, tdir))
+    check("evals: a passing and a failing script", got == {"evals/has-title.py": "pass", "evals/long.sh": "fail"}, got)
+    check("evals: any fail makes the task fail", lab.eval_verdict(list(got.items())) == "fail")
+    got = lab.run_evals({"evals": ["evals/has-title.py"]}, hdir, tdir)
+    check("evals: all pass makes the task pass", lab.eval_verdict(got) == "pass", got)
+    got = dict(lab.run_evals({"evals": ["evals/crash.py", "../escape.py", "evals/missing.py"]}, hdir, tdir))
+    check("evals: a crash, a path outside the harness, a missing script are errors",
+          set(got.values()) == {"error"} and len(got) == 3, got)
+    check("evals: an error records nothing", lab.eval_verdict(list(got.items())) is None)
+    check("evals: no evals, no verdict", lab.run_evals({"evals": []}, hdir, tdir) == [] and lab.eval_verdict([]) is None)
     print(f"passed={results['pass']} failed={results['fail']}")
     return 0 if results["fail"] == 0 else 1
 
