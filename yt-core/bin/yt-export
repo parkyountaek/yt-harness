@@ -8,7 +8,7 @@ Usage:
             must be outside the repository and outside ~/yt-local/
   --data    also pack the numeric records (metrics, evals, events)
 
-Packed: config.json (without "repo"), routes.json, active.json, blocked-terms.txt,
+Packed: config.json (without "repo"), routes.json, active.json, mods-theme.json, blocked-terms.txt,
 blocked-paths.txt. Never packed: the session list, runner state, locks, task folders.
 Home paths are written as ~/... The archive holds your blocked terms: keep it off
 GitHub and shared drives, and delete it after yt-import on the other machine.

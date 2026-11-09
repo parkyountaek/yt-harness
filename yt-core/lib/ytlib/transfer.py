@@ -22,7 +22,7 @@ from . import core
 
 SCHEMA = 1
 KIND = "yt-local-export"
-SETTINGS = ("config.json", "routes.json", "active.json", "blocked-terms.txt", "blocked-paths.txt")
+SETTINGS = ("config.json", "routes.json", "active.json", "blocked-terms.txt", "blocked-paths.txt", "mods-theme.json")
 RECORDS = ("data/metrics.jsonl", "data/evals.jsonl", "data/events.jsonl")
 MANIFEST = "manifest.json"
 MAX_BYTES = 64 * 1024 * 1024

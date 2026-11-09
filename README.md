@@ -127,8 +127,8 @@ yt-import <archive>                             # merge, backing up what changes
 yt-core/bin/yt-setup && yt-doctor
 ```
 
-The archive holds `config.json` (without `repo`), `routes.json`, `active.json`, and
-the blocked lists; `--data` adds `metrics`, `evals`, and `events`. The session list,
+The archive holds `config.json` (without `repo`), `routes.json`, `active.json`, the mods
+theme, and the blocked lists; `--data` adds `metrics`, `evals`, and `events`. The session list,
 runner state, and task folders stay behind. Home paths are written as `~/...`.
 Import merges: routes by task kind and vaults by name take the archive's value,
 local entries stay, and list and record lines are added once. The whole archive is

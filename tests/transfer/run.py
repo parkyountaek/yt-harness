@@ -56,6 +56,7 @@ def main():
     write(src, "blocked-terms.txt", "# terms\nexample-corp\n")
     write(src, "blocked-paths.txt", "# paths\n")
     write(src, "active.json", '{ "schema": 1, "projects": {} }\n')
+    write(src, "mods-theme.json", '{"preset": "ocean", "overrides": {"accent": "#00aaff"}}\n')
     write(src, "data/metrics.jsonl", '{"taskId": "a"}\n')
     write(src, "data/sessions.json", '{"sessions": {}}\n')
 
@@ -66,7 +67,7 @@ def main():
     got = members(plain)
     check("export: settings only without --data",
           set(got) == {"manifest.json", "config.json", "routes.json", "blocked-terms.txt",
-                       "blocked-paths.txt", "active.json"}, sorted(got))
+                       "blocked-paths.txt", "active.json", "mods-theme.json"}, sorted(got))
     cfg = json.loads(got["config.json"])
     check("export: repo is left out", "repo" not in cfg, cfg)
     check("export: home paths become ~/", cfg["vaults"]["notes"] == "~/notes/work", cfg)
@@ -100,6 +101,8 @@ def main():
     check("import: archive route wins, local-only route stays",
           routes == {"read-check": "yt-ops", "local-only": "yt-ops", "log-triage": "no-such-harness"}, routes)
     terms = read(dst, "blocked-terms.txt").splitlines()
+    theme = json.loads(read(dst, "mods-theme.json"))
+    check("import: the mods theme comes along", theme == {"preset": "ocean", "overrides": {"accent": "#00aaff"}}, theme)
     check("import: blocked terms are a union", "local-term" in terms and "example-corp" in terms, terms)
     check("import: records appended once", read(dst, "data/metrics.jsonl").count('"a"') == 1
           and '"b"' in read(dst, "data/metrics.jsonl"))
