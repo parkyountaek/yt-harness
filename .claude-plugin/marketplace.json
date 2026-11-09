@@ -15,6 +15,11 @@
       "source": "./yt-code"
     },
     {
+      "name": "yt-improve",
+      "description": "Improvement proposals: reads a harness's results and case cards, proposes a skill change on a branch",
+      "source": "./yt-improve"
+    },
+    {
       "name": "yt-ops",
       "description": "First example harness: read-only investigation",
       "source": "./yt-ops"

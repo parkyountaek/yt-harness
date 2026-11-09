@@ -104,6 +104,8 @@ def main(argv):
     ap.add_argument("--brief")
     ap.add_argument("--vault", help="vault name for folderKind: vault harnesses")
     ap.add_argument("--repo", help="repository name for folderKind: repo or worktree harnesses")
+    # Paths a worktree branch may change; set by `yt improve --propose`, enforced by collect and bring.
+    ap.add_argument("--scope", action="append", help=argparse.SUPPRESS)
     ap.add_argument("--experimental", action="store_true", help="allow a harness marked experimental: true")
     args = ap.parse_args(argv)
 
@@ -131,6 +133,8 @@ def main(argv):
     kind = harness.get("folderKind")
     if args.repo and kind not in ("repo", "worktree"):
         return fail(f"harness {args.harness} does not use a repository")
+    if args.scope and kind != "worktree":
+        return fail("--scope applies to worktree harnesses only")
     if kind in ("repo", "worktree"):
         known_repos = gitwork.repos()
         if args.repo not in known_repos:
@@ -212,7 +216,7 @@ def main(argv):
     repo = {}
     if source:
         try:
-            repo = gitwork.prepare(args.task_id, source, writable=kind == "worktree")
+            repo = gitwork.prepare(args.task_id, source, writable=kind == "worktree", scope=args.scope)
         except Exception as e:  # noqa: BLE001  a failed clone must end in a recorded state
             error = f"clone failed: {e}"
         with core.locked(core.REGISTRY_LOCK):

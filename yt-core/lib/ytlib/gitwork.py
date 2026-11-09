@@ -26,10 +26,14 @@ BRANCH = "yt/{task_id}"
 SAFE_GIT = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
 
 
+SELF = "yt-harness"
+
+
 def repos():
-    """Named source repositories (~/yt-local/config.json "repos")."""
-    return {k: os.path.realpath(os.path.expanduser(v))
-            for k, v in ((core.read_json(core.CONFIG, {}) or {}).get("repos") or {}).items()}
+    """Named source repositories (~/yt-local/config.json "repos"), plus this checkout as yt-harness."""
+    named = {k: os.path.realpath(os.path.expanduser(v))
+             for k, v in ((core.read_json(core.CONFIG, {}) or {}).get("repos") or {}).items()}
+    return {SELF: os.path.realpath(core.REPO), **named}
 
 
 def source_problem(path):
@@ -68,8 +72,12 @@ def fingerprint(clone):
     return h.hexdigest()
 
 
-def prepare(task_id, source, writable):
-    """Clone source into the task folder; return the session-list fields for it."""
+def prepare(task_id, source, writable, scope=None):
+    """Clone source into the task folder; return the session-list fields for it.
+
+    scope: paths the task branch may change (a trailing / means a folder). A file
+    named in scope as "<path>:version" may change only its `version:` line.
+    """
     clone = os.path.join(core.task_dir(task_id), CLONE)
     if os.path.exists(clone):
         raise RuntimeError(f"{clone} exists; move or delete it first")
@@ -92,7 +100,7 @@ def prepare(task_id, source, writable):
         branch = BRANCH.format(task_id=task_id)
         _git("switch", "--quiet", "-c", branch, cwd=clone)
     return {"repoSource": source, "repoClone": clone, "repoBase": base, "repoBranch": branch,
-            "repoFingerprint": fingerprint(clone)}
+            "repoFingerprint": fingerprint(clone), **({"repoScope": list(scope)} if scope else {})}
 
 
 def objects_dir(source):
@@ -108,6 +116,26 @@ def tampered(entry):
         return ("the clone's git config, hooks, or info/attributes changed during the task; "
                 f"inspect {clone} by hand before using it")
     return None
+
+
+def scope_problems(entry):
+    """Changes on the task branch outside its scope (empty when it has no scope)."""
+    scope = entry.get("repoScope")
+    if not scope or not entry.get("repoBranch"):
+        return []
+    clone, base, branch = entry["repoClone"], entry["repoBase"], entry["repoBranch"]
+    version_only = {s[:-len(":version")] for s in scope if s.endswith(":version")}
+    allowed = [s for s in scope if not s.endswith(":version")]
+    out = []
+    for path in _git("diff", "--name-only", "--no-renames", f"{base}..{branch}", cwd=clone).splitlines():
+        if path in version_only:
+            diff = _git("diff", "-U0", f"{base}..{branch}", "--", path, cwd=clone).splitlines()
+            changed = [d for d in diff if d[:1] in "+-" and not d.startswith(("+++", "---"))]
+            if any(not d[1:].startswith("version:") for d in changed):
+                out.append(f"{path}: only its version line may change")
+        elif not any(path == a or (a.endswith("/") and path.startswith(a)) for a in allowed):
+            out.append(f"{path}: outside the task's scope")
+    return out
 
 
 def summary(entry):
@@ -126,6 +154,7 @@ def summary(entry):
     out += [f"  {stat[-1].strip()}"] if stat else []
     if dirty:
         out.append(f"  {len(dirty)} uncommitted change(s) in the clone are not part of the branch")
+    out += [f"  out of scope: {p}" for p in scope_problems(entry)]
     return out
 
 
@@ -137,6 +166,9 @@ def bring(entry):
     branch, source = entry.get("repoBranch"), entry["repoSource"]
     if not branch:
         raise RuntimeError("this task was read-only (folderKind repo); there is nothing to bring")
+    outside = scope_problems(entry)
+    if outside:
+        raise RuntimeError("the branch changes files outside the task's scope: " + "; ".join(outside))
     if _git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", cwd=source, check=False):
         raise RuntimeError(f"{source} already has a branch {branch}; rename or delete it first")
     _git("fetch", "--quiet", "--no-tags", entry["repoClone"], f"refs/heads/{branch}:refs/heads/{branch}", cwd=source)

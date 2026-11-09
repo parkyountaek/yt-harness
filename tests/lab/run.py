@@ -146,6 +146,15 @@ def main():
           set(got.values()) == {"error"} and len(got) == 3, got)
     check("evals: an error records nothing", lab.eval_verdict(list(got.items())) is None)
     check("evals: no evals, no verdict", lab.run_evals({"evals": []}, hdir, tdir) == [] and lab.eval_verdict([]) is None)
+    # improvement proposals: the brief carries numbers and shapes, never task content
+    lab.eval_record("e-1", {"harness": "h", "runtime": "claude"}, {"harnessVersion": "0.2.0"}, "fail")
+    brief = lab.improve_brief("h")
+    check("brief: the per-version table", "| 0.1.0 | 3 |" in brief and "| 0.2.0 |" in brief, brief[:400])
+    check("brief: the comparison verdict", "Comparison of the last two versions:" in brief)
+    check("brief: eval counts by verdict and judge", "- fail by human: 1" in brief, brief)
+    check("brief: the scope", "only `h/skills/` and the `version:` line of `h/harness.yaml`" in brief)
+    check("brief: no task text", "title: x" not in brief and "Which file?" not in brief)
+    check("scope: skills and the version line", lab.improve_scope("h") == ["h/skills/", "h/harness.yaml:version"])
     print(f"passed={results['pass']} failed={results['fail']}")
     return 0 if results["fail"] == 0 else 1
 

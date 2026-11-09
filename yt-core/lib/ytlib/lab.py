@@ -209,3 +209,47 @@ def eval_verdict(results):
     if states and all(s == "pass" for s in states):
         return "pass"
     return None
+
+
+# ---------- improvement proposals ----------
+
+IMPROVER = "yt-improve"
+CARDS_IN_BRIEF = 5
+
+
+def improve_scope(harness):
+    """What a proposal for this harness may change: its skills, and its version line."""
+    return [f"{harness}/skills/", f"{harness}/harness.yaml:version"]
+
+
+def improve_brief(harness):
+    """The work order for a proposal: numbers, enumerations, and case cards only."""
+    rows, verdict = improve_report(harness)
+    evals = [d for d in latest_evals().values() if d.get("harness") == harness]
+    failed = [d["taskId"] for d in evals if d.get("verdict") == "fail" or d.get("humanFixed")]
+    sessions = core.load_sessions()["sessions"]
+    cards = []
+    for task_id in failed[-CARDS_IN_BRIEF:]:
+        entry = sessions.get(task_id)
+        status = core.read_status(core.task_dir(task_id)) or {}
+        if entry:
+            cards.append(case_card(task_id, entry, status))
+    lines = [f"Propose an improvement to the `{harness}` harness, or conclude that none is justified.", "",
+             "## Results per version (success counts a human or deterministic eval verdict over the final state)", "",
+             "| version | tasks | success | avg tokens | avg turns |", "|---|---|---|---|---|"]
+    lines += [f"| {r['version']} | {r['tasks']} | {r['success']:.0%} | {r['tokens']:,.0f} | {r['turns']:.1f} |" for r in rows]
+    if not rows:
+        lines.append("| (no measured tasks yet) | | | | |")
+    lines += ["", f"Comparison of the last two versions: {verdict or 'not enough versions to compare'}", "",
+              "## Eval verdicts", ""]
+    counts = collections.Counter((d.get("verdict"), d.get("judge"), bool(d.get("humanFixed"))) for d in evals)
+    lines += [f"- {v} by {j}{' (human had to fix it)' if fixed else ''}: {n}" for (v, j, fixed), n in sorted(counts.items())]
+    if not evals:
+        lines.append("- none recorded")
+    lines += ["", "## Case cards of failed or fixed tasks (shape only, no content)", ""]
+    lines += ["```json", json.dumps(cards, indent=2, ensure_ascii=False), "```"] if cards else ["- none"]
+    lines += ["", "## Scope", "",
+              f"You may change only `{harness}/skills/` and the `version:` line of `{harness}/harness.yaml`.",
+              "yt rejects a branch that changes anything else: sandbox, guards, tests, eval criteria, and other",
+              "harnesses are out of reach on purpose."]
+    return "\n".join(lines) + "\n"

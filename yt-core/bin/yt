@@ -26,6 +26,9 @@ Usage:
   yt eval <task-id> pass|fail [--judge human|model|deterministic] [--fixed]
                                            record a verdict (enumerations only, no notes)
   yt improve <harness>                     compare versions: success, tokens, turns
+  yt improve <harness> --propose [--runtime claude|codex] [--runner R]
+                                           a yt-improve sub-session proposes a change to the
+                                           harness's skills on branch yt/<task>; never applied
   yt card <task-id>                        case card: the task's shape without its content
 
 The task folder and deadline come from the coordinator's session list, never from
@@ -36,6 +39,7 @@ Exit codes: 0 ok, 1 error, 2 concurrency limit reached,
             3 not finished yet (collect), 4 the task failed (collect).
 """
 import json
+import subprocess
 import os
 import sys
 
@@ -286,8 +290,10 @@ def cmd_collect(task_id):
             lab.eval_record(task_id, e, status, verdict, judge="deterministic")
     if e.get("repoBranch"):
         try:
-            print("\n".join("# " + line for line in gitwork.summary(e)))
-            print(f"# bring it into {e['repoSource']} as a branch: yt bring {task_id}")
+            lines = gitwork.summary(e)
+            print("\n".join("# " + line for line in lines))
+            if lines and ": 0 commit(s)" not in lines[0]:
+                print(f"# bring it into {e['repoSource']} as a branch: yt bring {task_id}")
         except RuntimeError as ex:
             print(f"yt: {task_id}: {ex}", file=sys.stderr)
             return 1
@@ -394,6 +400,31 @@ def cmd_improve(harness):
     return 0
 
 
+def cmd_improve_propose(harness, args):
+    """Start a yt-improve sub-session on a clone of this checkout; it can only propose."""
+    if harness not in core.harness_names() or harness == lab.IMPROVER:
+        return fail(f"no harness {harness!r} to improve")
+    runtime, runner = "claude", None
+    while args:
+        flag = args.pop(0)
+        if flag in ("--runtime", "--runner") and args:
+            value = args.pop(0)
+            runtime, runner = (value, runner) if flag == "--runtime" else (runtime, value)
+        else:
+            return fail(f"unknown option {flag}")
+    task_id = f"improve-{harness}-{core.now().strftime('%Y%m%d%H%M%S')}"
+    in_dir = os.path.join(core.task_dir(task_id), "in")
+    os.makedirs(in_dir, exist_ok=True)
+    with open(os.path.join(in_dir, "BRIEF.md"), "w", encoding="utf-8") as f:
+        f.write(lab.improve_brief(harness))
+    argv = [sys.executable, os.path.join(core.CORE, "bin", "yt-spawn"), task_id, lab.IMPROVER,
+            "--repo", gitwork.SELF, "--experimental", "--runtime", runtime]
+    argv += ["--runner", runner] if runner else []
+    for s in lab.improve_scope(harness):
+        argv += ["--scope", s]
+    return subprocess.call(argv)
+
+
 def cmd_card(task_id):
     e, status = task_entry(task_id)
     print(json.dumps(lab.case_card(task_id, e, status), indent=2, ensure_ascii=False))
@@ -472,6 +503,8 @@ def main(argv):
             return 0
         if cmd == "eval" and len(rest) >= 2:
             return cmd_eval(rest[0], rest[1:])
+        if cmd == "improve" and len(rest) >= 2 and rest[1] == "--propose":
+            return cmd_improve_propose(rest[0], list(rest[2:]))
         if cmd == "improve" and len(rest) == 1:
             return cmd_improve(rest[0])
         if cmd == "card" and len(rest) == 1:

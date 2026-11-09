@@ -262,6 +262,13 @@ hides `~/.gitconfig`); the human's name and email are copied into the clone's co
 Verified live on both runtimes: the same one-line change, committed on the task branch,
 collected, and brought back as a branch.
 
+### Improvement proposals (`yt-improve`)
+
+`yt improve <harness> --propose` starts the experimental `yt-improve` harness on a clone
+of this checkout (`--repo yt-harness` is always known). Its brief holds only numbers and
+case cards. The branch may change only that harness's `skills/` and its `version:` line;
+collect lists anything else and `yt bring` refuses it. See `docs/roadmap.md`.
+
 ## Knowledge vault (`yt-wiki`)
 
 A `folderKind: vault` harness works inside a named folder. The vaults are listed

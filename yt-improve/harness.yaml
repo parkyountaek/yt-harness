@@ -1,0 +1,15 @@
+schema: 1
+id: yt-improve
+version: 0.1.0
+purpose: Propose a change to one harness's skills from its numbers
+description: "Improvement proposals: reads a harness's results and case cards, proposes a skill change on a branch"
+tools: [git]
+folderKind: worktree       # started by `yt improve <harness> --propose` on a clone of this checkout
+permissions: write
+sandbox:                   # the clone and out/ are writable; yt enforces the scope on the branch
+  read: ["<task-folder>"]
+  write: ["<task-folder>/out/", "<repo>"]
+deadlineDefault: 1h
+evals: []
+runtimes: []               # list only runtimes that passed the equivalence tests
+experimental: true

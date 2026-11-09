@@ -9,7 +9,7 @@ goes there, so it may leave the machine after a human check.
 |---|---|---|
 | Harness generation | `yt harness new`, `yt harness candidates` | ready |
 | Run evaluation | `yt eval`, `evals.jsonl` | ready |
-| Self-improvement | `yt improve` | report ready; proposals manual |
+| Self-improvement | `yt improve`, `yt improve --propose`, `yt-improve` harness | ready (proposals only) |
 | Experiments | `experimental: true`, `yt-spawn --experimental`, `yt card` | ready |
 | Knowledge store (`yt-wiki`) | `folderKind: vault`, `yt-wiki` harness, `yt-mask` | experimental |
 | Control panel and retirement | `yt panel`, `panel` skill | ready |
@@ -54,9 +54,23 @@ overrides the final state. It compares the last two versions:
 - **no gain:** success held, but neither dropped.
 - **unclear:** fewer than 3 tasks on either version.
 
-Next step, not built: a `yt-improve` loop (collect → diagnose → propose → regression
-→ apply) that writes proposals only. Enforcement layers (sandbox, guards, tests,
-eval criteria) are never changed by it.
+`yt improve <harness> --propose [--runtime claude|codex]` runs the loop as far as a
+proposal:
+
+1. **Collect:** the brief holds the version table, eval verdict counts, and case cards
+   of failed or human-fixed tasks. Numbers and shapes only; no task content.
+2. **Diagnose and propose:** a `yt-improve` sub-session works on a private clone of this
+   checkout (folderKind worktree). It names the signal it acts on and makes the smallest
+   skill change with a patch version bump, or concludes that none is justified.
+3. **Scope:** the branch may change only `<harness>/skills/` and the `version:` line of
+   `<harness>/harness.yaml`. `yt collect` lists anything else and `yt bring` refuses it,
+   so enforcement layers (sandbox, guards, tests, eval criteria) and other harnesses are
+   never part of a proposal.
+4. **Apply:** the human runs `yt bring <task>`, reviews the branch, merges it, and pushes
+   through the repo guard. The new version then earns its verdict in `yt improve`.
+
+Verified live on both runtimes: with 8 tasks at 100% and one version, both concluded
+that no change was justified and committed nothing.
 
 ## Experiments
 

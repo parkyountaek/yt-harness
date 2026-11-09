@@ -112,6 +112,44 @@ def unit(src):
     check("source: the test repository is fine", gitwork.source_problem(src) is None)
 
 
+def scoped(src):
+    os.makedirs(os.path.join(src, "h", "skills", "s"), exist_ok=True)
+    with open(os.path.join(src, "h", "harness.yaml"), "w") as f:
+        f.write("id: h\nversion: 0.1.0\nsandbox: x\n")
+    with open(os.path.join(src, "h", "skills", "s", "SKILL.md"), "w") as f:
+        f.write("step one\n")
+    git("add", ".", cwd=src)
+    git("commit", "-q", "-m", "harness", cwd=src)
+    scope = ["h/skills/", "h/harness.yaml:version"]
+
+    def attempt(name, edits):
+        e = gitwork.prepare(f"sc-{name}", src, writable=True, scope=scope)
+        for rel, old, new in edits:
+            path = os.path.join(e["repoClone"], rel)
+            text = open(path).read() if os.path.exists(path) else ""
+            with open(path, "w") as f:
+                f.write(text.replace(old, new) if old else text + new)
+        git("add", "-A", cwd=e["repoClone"])
+        git("commit", "-q", "-m", name, cwd=e["repoClone"])
+        return e
+
+    ok = attempt("ok", [("h/skills/s/SKILL.md", "step one", "step one, checked"),
+                        ("h/harness.yaml", "version: 0.1.0", "version: 0.1.1")])
+    check("scope: a skill change and a version bump are in scope", gitwork.scope_problems(ok) == [],
+          gitwork.scope_problems(ok))
+    bad = attempt("yaml", [("h/harness.yaml", "sandbox: x", "sandbox: y")])
+    check("scope: another harness.yaml line is refused", any("version line" in p for p in gitwork.scope_problems(bad)))
+    other = attempt("other", [("app.txt", None, "more\n")])
+    check("scope: a file outside the scope is refused", any("app.txt" in p for p in gitwork.scope_problems(other)))
+    check("scope: collect's summary names it", any("out of scope" in line for line in gitwork.summary(other)))
+    try:
+        gitwork.bring(other)
+        check("scope: bring refuses an out-of-scope branch", False)
+    except RuntimeError:
+        check("scope: bring refuses an out-of-scope branch", True)
+    check("scope: an in-scope branch can be brought", gitwork.bring(ok) == "yt/sc-ok")
+
+
 def sandboxed(src):
     plat = ytplatform.load()
     if plat.sandbox_problem():
@@ -159,6 +197,7 @@ def main():
         src = make_source()
         unit(src)
         sandboxed(src)
+        scoped(src)
     finally:
         shutil.rmtree(ROOT, ignore_errors=True)
     print(f"passed={results['pass']} failed={results['fail']}")
