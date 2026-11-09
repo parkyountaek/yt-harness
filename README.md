@@ -253,11 +253,16 @@ read-only and nothing else of the source.
 - `yt collect <id>` lists the branch's commits and diff size; `yt bring <id>` fetches the
   branch into the source as `yt/<id>`. It never merges, checks out, or overwrites a branch.
 
-Git run on the clone outside the sandbox would read the clone's config, which the
-session could change (`core.fsmonitor`, diff drivers, hook paths). The clone's config,
-hooks, and `info/attributes` are fingerprinted at spawn; collect and bring refuse when
-they changed. Sub-sessions run git with `GIT_CONFIG_GLOBAL=/dev/null` (the sandbox
-hides `~/.gitconfig`); the human's name and email are copied into the clone's config.
+The session can write anything in the clone, its `.git` included (config, `commondir`,
+replacement refs, hooks), so yt never runs git on the clone outside the sandbox. Once
+the session has stopped (collect and bring refuse while it runs), yt exports the task
+branch as a git bundle by running git under the task's own sandbox profile, then
+fetches that bundle as plain data into a quarantine repository it creates itself
+(`<task folder>/branch.git`: bare, no user or system config, replacement refs off).
+Every check, summary, and bring reads only the quarantine. The version-line rule
+compares the file's bytes, so a CR cannot hide a second change in that line.
+Sub-sessions run git with `GIT_CONFIG_GLOBAL=/dev/null` (the sandbox hides
+`~/.gitconfig`); the human's name and email are copied into the clone's config.
 
 Verified live on both runtimes: the same one-line change, committed on the task branch,
 collected, and brought back as a branch.

@@ -10,19 +10,27 @@ session read <source>/.git/objects and nothing else of the source.
             source's HEAD. `yt bring <task id>` fetches that branch into the source
             as a branch of the same name; it never merges, checks out, or overwrites.
 
-Every git command run on the clone outside the sandbox reads the clone's own
-config, which the session could have changed (core.fsmonitor, diff drivers, hook
-paths). So the clone's config, hooks, and info/attributes are fingerprinted at
-spawn, and yt refuses to run git there when the fingerprint changed.
+The session can write anything in the clone, its .git included (config, commondir,
+replacement refs, hooks), so yt never runs git on the clone outside the sandbox. Once
+the session is stopped, yt exports the task branch as a git bundle by running git under
+the task's own sandbox profile. Outside, it fetches that bundle (plain data) into a
+quarantine repository it creates itself (<task folder>/branch.git: bare, no user or
+system config, replacement refs off, objects borrowed from the source). Every check,
+summary, and `yt bring` reads only the quarantine.
 """
-import hashlib
 import os
+import re
+import shlex
+import shutil
 import subprocess
 
 from . import core
 
 CLONE = "repo"
+QUARANTINE = "branch.git"
+BUNDLE = "branch.bundle"
 BRANCH = "yt/{task_id}"
+VERSION_LINE = re.compile(rb"version: [0-9][0-9A-Za-z.+-]*\n")
 SAFE_GIT = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
 
 
@@ -48,34 +56,18 @@ def source_problem(path):
     return None
 
 
-# Git that yt runs on a clone loads no user or system config either: a .gitattributes the
-# session planted could otherwise call drivers the human configured (lfs, textconv, ...).
-ISOLATED = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0"}
+# Git that yt runs itself loads no user or system config and ignores replacement refs.
+ISOLATED = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
+            "GIT_NO_REPLACE_OBJECTS": "1"}
 
 
-def _git(*args, cwd=None, check=True, human_config=False):
+def _git(*args, cwd=None, check=True, human_config=False, raw=False):
     env = dict(os.environ) if human_config else {**os.environ, **ISOLATED}
-    r = subprocess.run(["git", *SAFE_GIT, *args], cwd=cwd, capture_output=True, text=True, timeout=300, env=env)
+    r = subprocess.run(["git", *SAFE_GIT, *args], cwd=cwd, capture_output=True, timeout=300, env=env)
     if check and r.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args[:3])} failed: {(r.stderr or r.stdout).strip()[:300]}")
-    return r.stdout.strip()
-
-
-def fingerprint(clone):
-    """Hash of what makes git run code or change behaviour in the clone."""
-    h = hashlib.sha256()
-    gitdir = os.path.join(clone, ".git")
-    for rel in ("config", os.path.join("info", "attributes")):
-        path = os.path.join(gitdir, rel)
-        h.update(rel.encode() + b"\0")
-        if os.path.isfile(path):
-            with open(path, "rb") as f:
-                h.update(f.read())
-        h.update(b"\0")
-    hooks = os.path.join(gitdir, "hooks")
-    for name in sorted(os.listdir(hooks)) if os.path.isdir(hooks) else []:
-        h.update(b"hook:" + name.encode() + b"\0")
-    return h.hexdigest()
+        err = (r.stderr or r.stdout).decode("utf-8", "replace").strip()
+        raise RuntimeError(f"git {' '.join(args[:3])} failed: {err[:300]}")
+    return r.stdout if raw else r.stdout.decode("utf-8", "replace").strip()
 
 
 def prepare(task_id, source, writable, scope=None):
@@ -106,38 +98,84 @@ def prepare(task_id, source, writable, scope=None):
         branch = BRANCH.format(task_id=task_id)
         _git("switch", "--quiet", "-c", branch, cwd=clone)
     return {"repoSource": source, "repoClone": clone, "repoBase": base, "repoBranch": branch,
-            "repoFingerprint": fingerprint(clone), **({"repoScope": list(scope)} if scope else {})}
+            **({"repoScope": list(scope)} if scope else {})}
 
 
 def objects_dir(source):
     return os.path.join(source, ".git", "objects")
 
 
-def tampered(entry):
-    """Why yt must not run git in this task's clone, or None."""
-    clone = entry.get("repoClone")
-    if not clone or not os.path.isdir(os.path.join(clone, ".git")):
-        return "the task has no clone"
-    if fingerprint(clone) != entry.get("repoFingerprint"):
-        return ("the clone's git config, hooks, or info/attributes changed during the task; "
-                f"inspect {clone} by hand before using it")
-    return None
+def export(entry):
+    """Bundle the task branch by running git inside the task's sandbox. Returns the bundle or None.
+
+    None means the branch has no commits on top of its base. The clone's own git config
+    can run code here, but only inside the same sandbox the session had.
+    """
+    from . import launch
+    from . import platform as ytplatform
+    task = core.task_dir(entry["taskId"])
+    tmp = os.path.join(task, "tmp")
+    os.makedirs(tmp, exist_ok=True)
+    bundle = os.path.join(tmp, BUNDLE)
+    dirty = os.path.join(tmp, "branch.dirty")
+    for p in (bundle, dirty):
+        if os.path.exists(p):
+            os.remove(p)
+    harness = core.load_harness(entry["harness"])
+    policy = core.resolve_policy(harness, task, entry.get("vaultPath"), entry["repoClone"])
+    rng = f"{entry['repoBase']}..refs/heads/{entry['repoBranch']}"
+    script = (f"git status --porcelain > {shlex.quote(dirty)}; "
+              f"if [ -n \"$(git rev-list -n 1 {shlex.quote(rng)})\" ]; then "
+              f"git bundle create -q {shlex.quote(bundle)} {shlex.quote(rng)}; fi")
+    plat = ytplatform.load()
+    argv = plat.sandbox_argv(policy, entry["runtime"], ["/bin/sh", "-c", script], profile_dir=tmp,
+                             extra_read=[objects_dir(entry["repoSource"])], tmp_dir=tmp, cwd=entry["repoClone"])
+    r = subprocess.run(argv, cwd=entry["repoClone"], env=launch.session_env(task, tmp), capture_output=True,
+                       text=True, timeout=300)
+    if r.returncode != 0:
+        raise RuntimeError(f"could not export the task branch: {(r.stderr or r.stdout).strip()[:300]}")
+    return bundle if os.path.isfile(bundle) else None
 
 
-def scope_problems(entry):
+def quarantine(entry):
+    """Fetch the exported branch into a fresh quarantine repository. Returns its path."""
+    task = core.task_dir(entry["taskId"])
+    q = os.path.join(task, QUARANTINE)
+    shutil.rmtree(q, ignore_errors=True)
+    _git("init", "--bare", "--quiet", q)
+    with open(os.path.join(q, "objects", "info", "alternates"), "w", encoding="utf-8") as f:
+        f.write(objects_dir(entry["repoSource"]) + "\n")
+    _git("update-ref", f"refs/heads/{entry['repoBranch']}", entry["repoBase"], cwd=q)
+    bundle = export(entry)
+    if bundle:
+        branch = entry["repoBranch"]
+        _git("fetch", "--quiet", "--no-tags", "--force", bundle, f"refs/heads/{branch}:refs/heads/{branch}", cwd=q)
+    return q
+
+
+def _version_only(q, base, branch, path):
+    """True when the file differs from base only in one `version: x` line (compared as bytes)."""
+    old = _git("cat-file", "blob", f"{base}:{path}", cwd=q, raw=True, check=False).splitlines(keepends=True)
+    new = _git("cat-file", "blob", f"{branch}:{path}", cwd=q, raw=True, check=False).splitlines(keepends=True)
+    if len(old) != len(new) or not old:
+        return False
+    changed = [i for i, (a, b) in enumerate(zip(old, new)) if a != b]
+    return len(changed) == 1 and all(VERSION_LINE.fullmatch(x[changed[0]]) for x in (old, new))
+
+
+def scope_problems(entry, q):
     """Changes on the task branch outside its scope (empty when it has no scope)."""
     scope = entry.get("repoScope")
     if not scope or not entry.get("repoBranch"):
         return []
-    clone, base, branch = entry["repoClone"], entry["repoBase"], entry["repoBranch"]
+    base, branch = entry["repoBase"], f"refs/heads/{entry['repoBranch']}"
     version_only = {s[:-len(":version")] for s in scope if s.endswith(":version")}
     allowed = [s for s in scope if not s.endswith(":version")]
     out = []
-    for path in _git("diff", "--name-only", "--no-renames", f"{base}..{branch}", cwd=clone).splitlines():
+    names = _git("diff", "--name-only", "-z", "--no-renames", base, branch, cwd=q, raw=True)
+    for path in [p.decode("utf-8", "replace") for p in names.split(b"\0") if p]:
         if path in version_only:
-            diff = _git("diff", "-U0", f"{base}..{branch}", "--", path, cwd=clone).splitlines()
-            changed = [d for d in diff if d[:1] in "+-" and not d.startswith(("+++", "---"))]
-            if any(not d[1:].startswith("version:") for d in changed):
+            if not _version_only(q, base, branch, path):
                 out.append(f"{path}: only its version line may change")
         elif any(part.startswith(".") for part in path.split("/")):
             out.append(f"{path}: dotfiles (.gitattributes, .gitignore, ...) are never in scope")
@@ -147,37 +185,38 @@ def scope_problems(entry):
 
 
 def summary(entry):
-    """Commits on the task branch and uncommitted files, for yt collect."""
-    problem = tampered(entry)
-    if problem:
-        raise RuntimeError(problem)
-    clone, base, branch = entry["repoClone"], entry["repoBase"], entry.get("repoBranch")
+    """Commits on the task branch and uncommitted files, for yt collect (from the quarantine)."""
+    base, branch = entry["repoBase"], entry.get("repoBranch")
     if not branch:
         return []
-    log = _git("log", "--oneline", f"{base}..{branch}", cwd=clone).splitlines()
-    stat = _git("diff", "--stat", f"{base}..{branch}", cwd=clone).splitlines()
-    dirty = [line for line in _git("status", "--porcelain", cwd=clone).splitlines() if line.strip()]
+    q = quarantine(entry)
+    ref = f"refs/heads/{branch}"
+    log = _git("log", "--oneline", "--no-decorate", f"{base}..{ref}", cwd=q).splitlines()
+    stat = _git("diff", "--stat", base, ref, cwd=q).splitlines()
     out = [f"branch {branch}: {len(log)} commit(s) on top of {base[:12]}"]
     out += [f"  {line}" for line in log[:20]]
     out += [f"  {stat[-1].strip()}"] if stat else []
+    try:
+        with open(os.path.join(core.task_dir(entry["taskId"]), "tmp", "branch.dirty"), encoding="utf-8") as f:
+            dirty = sum(1 for line in f if line.strip())
+    except OSError:
+        dirty = 0
     if dirty:
-        out.append(f"  {len(dirty)} uncommitted change(s) in the clone are not part of the branch")
-    out += [f"  out of scope: {p}" for p in scope_problems(entry)]
+        out.append(f"  {dirty} uncommitted change(s) in the clone are not part of the branch")
+    out += [f"  out of scope: {p}" for p in scope_problems(entry, q)]
     return out
 
 
 def bring(entry):
     """Fetch the task branch into the source repository as a new branch. Returns the branch name."""
-    problem = tampered(entry)
-    if problem:
-        raise RuntimeError(problem)
     branch, source = entry.get("repoBranch"), entry["repoSource"]
     if not branch:
         raise RuntimeError("this task was read-only (folderKind repo); there is nothing to bring")
-    outside = scope_problems(entry)
+    q = quarantine(entry)
+    outside = scope_problems(entry, q)
     if outside:
         raise RuntimeError("the branch changes files outside the task's scope: " + "; ".join(outside))
     if _git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", cwd=source, check=False):
         raise RuntimeError(f"{source} already has a branch {branch}; rename or delete it first")
-    _git("fetch", "--quiet", "--no-tags", entry["repoClone"], f"refs/heads/{branch}:refs/heads/{branch}", cwd=source)
+    _git("fetch", "--quiet", "--no-tags", q, f"refs/heads/{branch}:refs/heads/{branch}", cwd=source)
     return branch

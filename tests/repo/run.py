@@ -32,6 +32,12 @@ def git(*args, cwd):
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
 
 
+def prep(task_id, src, writable, scope=None):
+    e = gitwork.prepare(task_id, src, writable=writable, scope=scope)
+    e.update(taskId=task_id, runtime="claude", harness="yt-code")
+    return e
+
+
 def make_source():
     src = os.path.join(ROOT, "source")
     os.makedirs(src)
@@ -53,7 +59,7 @@ def commit_in(clone, text):
 
 def unit(src):
     head = git("rev-parse", "HEAD", cwd=src)
-    e = gitwork.prepare("w1", src, writable=True)
+    e = prep("w1", src, True)
     clone = e["repoClone"]
     check("prepare: the clone sits in the task folder", clone == os.path.join(core.task_dir("w1"), "repo"))
     check("prepare: worktree is on branch yt/<task>", git("branch", "--show-current", cwd=clone) == "yt/w1")
@@ -76,22 +82,30 @@ def unit(src):
     except RuntimeError:
         check("bring: refuses to overwrite an existing branch", True)
 
-    e2 = gitwork.prepare("w2", src, writable=True)
+    # A planted git config in the clone (directly, or through .git/commondir) only ever runs
+    # inside the sandbox: yt exports the branch there and reads it from a quarantine repo.
+    marker = os.path.join(ROOT, "escaped")
+    e2 = prep("w2", src, True)
+    common = os.path.join(e2["repoClone"], ".git", "evil-common")
+    shutil.copytree(os.path.join(e2["repoClone"], ".git"), common, ignore=shutil.ignore_patterns("evil-common"))
+    with open(os.path.join(common, "config"), "a") as f:
+        f.write(f"[core]\n\tfsmonitor = touch {marker}\n[diff]\n\texternal = touch {marker}\n")
     with open(os.path.join(e2["repoClone"], ".git", "config"), "a") as f:
-        f.write("[core]\n\tfsmonitor = /bin/echo\n")
-    check("tamper: a changed clone config is caught", gitwork.tampered(e2) is not None)
-    for name, fn in (("summary", gitwork.summary), ("bring", gitwork.bring)):
-        try:
-            fn(e2)
-            check(f"tamper: {name} refuses to run git there", False)
-        except RuntimeError:
-            check(f"tamper: {name} refuses to run git there", True)
-    e3 = gitwork.prepare("w3", src, writable=True)
-    with open(os.path.join(e3["repoClone"], ".git", "hooks", "post-checkout"), "w") as f:
-        f.write("#!/bin/sh\n")
-    check("tamper: an added hook is caught", gitwork.tampered(e3) is not None)
-
-    r = gitwork.prepare("r1", src, writable=False)
+        f.write(f"[core]\n\tfsmonitor = touch {marker}\n")
+    with open(os.path.join(e2["repoClone"], ".git", "commondir"), "w") as f:
+        f.write("evil-common\n")
+    with open(os.path.join(e2["repoClone"], ".git", "hooks", "pre-auto-gc"), "w") as f:
+        f.write(f"#!/bin/sh\ntouch {marker}\n")
+    try:
+        gitwork.summary(e2)
+    except RuntimeError:
+        pass   # a broken clone may refuse to export; what matters is that nothing ran outside
+    try:
+        gitwork.bring(e2)
+    except RuntimeError:
+        pass
+    check("attack: the clone's config and commondir never run outside the sandbox", not os.path.exists(marker))
+    r = prep("r1", src, writable=False)
     check("repo kind: no task branch", r["repoBranch"] is None and gitwork.summary(r) == [])
     try:
         gitwork.bring(r)
@@ -99,7 +113,7 @@ def unit(src):
     except RuntimeError:
         check("repo kind: nothing to bring", True)
     try:
-        gitwork.prepare("w1", src, writable=True)
+        prep("w1", src, True)
         check("prepare: refuses an existing clone", False)
     except RuntimeError:
         check("prepare: refuses an existing clone", True)
@@ -123,7 +137,7 @@ def scoped(src):
     scope = ["h/skills/", "h/harness.yaml:version"]
 
     def attempt(name, edits):
-        e = gitwork.prepare(f"sc-{name}", src, writable=True, scope=scope)
+        e = prep(f"sc-{name}", src, writable=True, scope=scope)
         for rel, old, new in edits:
             path = os.path.join(e["repoClone"], rel)
             text = open(path).read() if os.path.exists(path) else ""
@@ -135,12 +149,11 @@ def scoped(src):
 
     ok = attempt("ok", [("h/skills/s/SKILL.md", "step one", "step one, checked"),
                         ("h/harness.yaml", "version: 0.1.0", "version: 0.1.1")])
-    check("scope: a skill change and a version bump are in scope", gitwork.scope_problems(ok) == [],
-          gitwork.scope_problems(ok))
+    check("scope: a skill change and a version bump are in scope", gitwork.scope_problems(ok, gitwork.quarantine(ok)) == [])
     bad = attempt("yaml", [("h/harness.yaml", "sandbox: x", "sandbox: y")])
-    check("scope: another harness.yaml line is refused", any("version line" in p for p in gitwork.scope_problems(bad)))
+    check("scope: another harness.yaml line is refused", any("version line" in p for p in gitwork.scope_problems(bad, gitwork.quarantine(bad))))
     other = attempt("other", [("app.txt", None, "more\n")])
-    check("scope: a file outside the scope is refused", any("app.txt" in p for p in gitwork.scope_problems(other)))
+    check("scope: a file outside the scope is refused", any("app.txt" in p for p in gitwork.scope_problems(other, gitwork.quarantine(other))))
     check("scope: collect's summary names it", any("out of scope" in line for line in gitwork.summary(other)))
     try:
         gitwork.bring(other)
@@ -148,9 +161,22 @@ def scoped(src):
     except RuntimeError:
         check("scope: bring refuses an out-of-scope branch", True)
     check("scope: an in-scope branch can be brought", gitwork.bring(ok) == "yt/sc-ok")
+    cr = attempt("cr", [("h/harness.yaml", "version: 0.1.0\n", "version: 0.1.1\revals: [skills/s/x.py]\n")])
+    check("attack: a CR inside the version line is refused",
+          any("version line" in p for p in gitwork.scope_problems(cr, gitwork.quarantine(cr))))
+    rep = attempt("replace", [("app.txt", None, "smuggled\n")])
+    clone = rep["repoClone"]
+    git("replace", git("rev-parse", "HEAD", cwd=clone), rep["repoBase"], cwd=clone)
+    check("attack: a replacement ref cannot hide an out-of-scope commit",
+          any("app.txt" in p for p in gitwork.scope_problems(rep, gitwork.quarantine(rep))))
+    try:
+        gitwork.bring(rep)
+        check("attack: bring refuses the replaced branch", False)
+    except RuntimeError:
+        check("attack: bring refuses the replaced branch", True)
     dot = attempt("dot", [("h/skills/s/.gitattributes", None, "* diff=x\n")])
     check("scope: a dotfile inside an allowed folder is refused",
-          any("dotfiles" in p for p in gitwork.scope_problems(dot)), gitwork.scope_problems(dot))
+          any("dotfiles" in p for p in gitwork.scope_problems(dot, gitwork.quarantine(dot))))
     fake_global = os.path.join(ROOT, "global.gitconfig")
     with open(fake_global, "w") as f:
         f.write("[yt]\n\tprobe = from-the-human-config\n")
@@ -170,7 +196,7 @@ def sandboxed(src):
     if plat.sandbox_problem():
         print(f"skip sandbox cases: {plat.sandbox_problem()}")
         return
-    e = gitwork.prepare("s1", src, writable=True)
+    e = prep("s1", src, writable=True)
     task = core.task_dir("s1")
     for d in ("out", "tmp"):
         os.makedirs(os.path.join(task, d), exist_ok=True)
@@ -204,7 +230,6 @@ def sandboxed(src):
     check("sandbox: the source's objects are read-only", r.returncode != 0)
     check("sandbox: the source is unchanged", open(os.path.join(src, "app.txt")).read() == "one\n"
           and not os.path.exists(os.path.join(src, ".git", "hooks", "pre-commit")))
-    check("sandbox: the clone stays untampered", gitwork.tampered(e) is None)
 
 
 def main():

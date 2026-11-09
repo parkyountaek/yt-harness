@@ -361,7 +361,7 @@ def test_repo():
             e = entry(tid)
             clone = os.path.join(core.task_dir(tid), "repo")
             check(f"{rt}: the clone and its branch are in the session list",
-                  e.get("repoClone") == clone and e.get("repoBranch") == f"yt/{tid}" and e.get("repoFingerprint"))
+                  e.get("repoClone") == clone and e.get("repoBranch") == f"yt/{tid}" and e.get("repoBase"))
             gen = os.path.join(core.task_dir(tid), f"sandbox-{rt}." + ("bwrap" if PLATFORM == "linux" else "sb")
                                + ".generated")
             text = open(gen, encoding="utf-8").read()
