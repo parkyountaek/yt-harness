@@ -323,7 +323,7 @@ def step_codex_status_line(check_only):
     return True
 
 
-COMMANDS = ("yt","yt-spawn", "yt-setup", "yt-build", "yt-doctor", "yt-update", "yt-mask", "yt-export", "yt-import")
+COMMANDS = ("yt","yt-spawn", "yt-setup", "yt-build", "yt-doctor", "yt-update", "yt-mask", "yt-export", "yt-import", "yt-vault")
 
 
 def step_commands(check_only):

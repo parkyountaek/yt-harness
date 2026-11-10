@@ -98,9 +98,11 @@ that no change was justified and committed nothing.
 - `folderKind: vault` harnesses take `yt-spawn --vault <name>`. The name is looked
   up in `vaults` in `~/yt-local/config.json`, and the path is kept in the session
   list, so `yt resume` uses the same vault. The sandbox policy uses `<vault>`.
-- The `yt-wiki` harness has two skills. `capture` files notes under `inbox/` with
-  a front-matter header and updates an existing note before adding a duplicate.
-  `ask` answers only from the notes and cites them.
+- The `yt-wiki` harness has two skills. `capture` writes notes the vault's own way
+  and updates an existing note before adding a duplicate. `ask` answers only from
+  the notes and cites them. Both start with `yt-vault`, which detects the kind
+  (Obsidian, Logseq, Dendron, MkDocs, Docusaurus, plain) and its conventions from the
+  vault's files; the vault's own rule files win.
 - `yt-mask` is the masking check. It covers the repo guard's secret patterns,
   personal data, and the local blocked terms. It reports the kind and line only,
   and `--fix` masks in place.

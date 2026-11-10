@@ -288,9 +288,28 @@ yt-spawn cap-001 yt-wiki --vault work-notes   # brief: what to capture
 yt-spawn ask-001 yt-wiki --vault work-notes   # brief: the question
 ```
 
-The sandbox can read and write the vault, the task folder, and nothing else. The
-`capture` skill files notes under `inbox/` and updates an existing note before it
-adds a new one. The `ask` skill answers only from the notes and lists them as
+The sandbox can read and write the vault, the task folder, and nothing else.
+
+Vaults differ, so both skills start with `yt-vault <vault>`, which reads the vault's
+own files and prints its conventions. Precedence: the vault's rule files at its root
+(`AGENTS.md`, `CLAUDE.md`, `CONVENTIONS.md`, `README.md`), then what its existing
+notes do, then these defaults:
+
+| Kind (detected by) | New notes | Metadata | Links |
+|---|---|---|---|
+| Obsidian (`.obsidian/`) | the folder set in Obsidian, else the root | YAML properties | `[[wikilinks]]`, or Markdown if set |
+| Logseq (`logseq/config.edn`) | the pages folder from its config | `key:: value` properties | `[[Page]]`, outline blocks |
+| Dendron (`dendron.yml`) | `a.b.c.md` hierarchy | YAML with id and dates | `[[a.b.c]]` |
+| MkDocs (`mkdocs.yml`), Docusaurus (`docusaurus.config.*`) | under `docs_dir`, next to related pages; nav if it lists pages | YAML front matter | relative Markdown |
+| Plain folder | `inbox/<date>-<slug>.md` | YAML: title, source, captured, tags | relative Markdown |
+
+It also names the folders to search and to skip (tool folders, templates, build
+output). In a git vault the session leaves its changes uncommitted and lists them;
+the human commits. Remote wikis (Notion, Confluence) are not vaults: sub-sessions
+have no connectors, so export one to a folder first. Cases are in `tests/wiki/run.py`.
+
+The `capture` skill writes in the vault's own way and updates an existing note
+before it adds a new one. The `ask` skill answers only from the notes and lists them as
 sources. Both run `yt-mask` before they finish. `yt-mask` reports or masks secrets
 (the repo guard's patterns), personal data (email, phone, resident registration and
 card numbers), and the local blocked terms. It never prints the matched text.

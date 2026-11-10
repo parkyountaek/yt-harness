@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Print a knowledge vault's kind and conventions (see ytlib/vault.py).
+
+Usage: yt-vault <vault folder>
+The yt-wiki skills run this first so Claude and Codex follow the same conventions.
+Exit codes: 0 printed, 1 not a folder.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
+from ytlib import vault  # noqa: E402
+
+
+def main(argv):
+    if len(argv) != 1 or argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return 0 if argv else 1
+    if not os.path.isdir(argv[0]):
+        print(f"yt-vault: {argv[0]} is not a folder", file=sys.stderr)
+        return 1
+    print(vault.render(argv[0]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

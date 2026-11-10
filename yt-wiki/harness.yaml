@@ -1,6 +1,6 @@
 schema: 1
 id: yt-wiki
-version: 0.1.0
+version: 0.2.0
 purpose: Knowledge vault: capture notes and answer from them
 description: "Knowledge vault harness: capture notes into a vault and answer questions from it"
 tools: []
