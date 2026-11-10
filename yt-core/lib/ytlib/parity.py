@@ -8,11 +8,11 @@ It never changes the files; the human fixes them.
 Checked:
   instructions  ~/.claude/CLAUDE.md (+ ~/.claude/rules/*.md) vs ~/.codex/AGENTS.override.md
                 or ~/.codex/AGENTS.md (+ instruction keys in config.toml): same text
-  hooks         not compared: sub-sessions start with user-level hooks disabled on both
-                runtimes (see launch.runtime_argv); reported by claude_side/codex_side only
-  plugins       globally enabled plugins: same names on both sides. The human's Claude
-                interface mods (mods/ in this checkout) are left out: sub-sessions drop
-                them (launch.claude_no_hooks), so they never reach a work order
+  hooks         not compared: sub-sessions run only their harness plugin's hooks; user-level
+                hooks are off on both runtimes (launch.claude_isolation, codex_isolation)
+  plugins       globally enabled plugins: same names on both sides (the human's own sessions).
+                Sub-sessions load only their harness plugin. The human's Claude interface
+                mods (mods/ in this checkout) are left out: they never reach a work order
 """
 import glob
 import json

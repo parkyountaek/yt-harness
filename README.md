@@ -226,9 +226,9 @@ status_line = ["model-with-reasoning", "context-used", "five-hour-limit", "weekl
 `CLAUDE_MODS_THEME_FILE` at `~/yt-local/mods-theme.json`; `"mods": false` in
 `~/yt-local/config.json` leaves them out. Settings are in `/config`.
 
-They stay out of sub-sessions twice over: the sub-session's `--settings` drops
-`mods/` from the plugin dirs (flag settings outrank `~/.claude/settings.json`), and
-`disableAllHooks` stops any hooks module from loading. Codex has no equivalent
+They stay out of sub-sessions: a Claude sub-session does not load
+`~/.claude/settings.json` (`--setting-sources project,local`), where the plugin
+dirs that load them are set. Codex has no equivalent
 interface, so the parity check leaves `mods/` out. `tests/mods/run.sh` runs each
 mod's tests and `claude plugin validate`.
 
@@ -339,7 +339,8 @@ Outside the profile, every sub-session also starts:
 - from a clean environment (an allowlist in `launch.session_env`, plus
   `envPassthrough` in `~/yt-local/config.json`), so no coordinator token,
   socket, or terminal-app variable leaks in;
-- with user-level hooks off and with no MCP servers or connectors (Claude:
+- with only its harness plugin and that plugin's hooks (see "Harness hooks"), and
+  with no MCP servers or connectors (Claude:
   `--strict-mcp-config`, `ENABLE_CLAUDEAI_MCP_SERVERS=false`; Codex:
   `features.apps=false` and every configured server disabled).
 
@@ -372,9 +373,34 @@ differ, the runtimes stop behaving the same, so yt-harness checks them
 - the same plugins must be enabled globally (normally only `yt-core`);
 - no runtime-only instruction settings (Codex `developer_instructions`, Claude `outputStyle`).
 
-User-level hooks are not compared: every sub-session starts with them turned
-off (`--settings '{"disableAllHooks": true}'` for Claude, `-c features.hooks=false`
-for Codex), so hooks that other tools install (e.g. a terminal app) never run there.
+User-level hooks are not compared: no sub-session runs them (see "Harness hooks"),
+so hooks that other tools install (e.g. a terminal app) never run there.
+
+## Harness hooks and skills (sub-sessions)
+
+A sub-session loads exactly one plugin, its harness: the procedure skills in
+`skills/` and the hooks in `hooks/hooks.json`. `yt-build` generates the same hooks
+for every harness, and Claude and Codex read the same file:
+
+| Event | Command | What it does |
+|---|---|---|
+| SessionStart (startup, resume, clear, compact) | `yt-hook session-start` | Puts the work order path, the current state, and the harness skill names in context; after a reset it says to re-read `TASK.md` and `out/status.json`. |
+| PreToolUse | `yt-guard` | The same guard as the human's sessions. |
+| Stop | `yt-hook stop` | Refuses to end while the task is still `running` (exit 2 with the next step). After two refusals without a status change it lets go, and the panel shows the run as ended. |
+
+The hooks run inside the sandbox and do nothing outside a sub-session (`$YT_CORE`
+unset). The human's own hooks and plugins stay out: Claude skips
+`~/.claude/settings.json` (`--setting-sources project,local`; `model`, `apiKeyHelper`,
+and `env` without the plugin dirs are carried over through `--settings`); Codex runs
+with `--dangerously-bypass-hook-trust`, every user hook turned off by its
+`hooks.state` key, and every plugin but the harness turned off. Cases are in
+`tests/hooks/run.py`.
+
+In the human's own sessions, `yt-core` adds a UserPromptSubmit hook (`yt-hook
+prompt`): when a task newly needs the human (a question, a result to collect, a
+late or ended run), the next prompt gets one line about it, so Codex hears what the
+Claude mods show. Each need is told once across this hook, `yt watch`, and the
+work-alerts mod. `"hookHints": false` in `~/yt-local/config.json` turns it off.
 
 `yt-setup --check` reports drift. `yt-spawn` and `yt resume` refuse to start
 until it is fixed. The check is skipped when only one runtime is installed.

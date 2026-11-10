@@ -146,6 +146,27 @@ def main():
           set(got.values()) == {"error"} and len(got) == 3, got)
     check("evals: an error records nothing", lab.eval_verdict(list(got.items())) is None)
     check("evals: no evals, no verdict", lab.run_evals({"evals": []}, hdir, tdir) == [] and lab.eval_verdict([]) is None)
+    # the shipped harness evals: the common contract plus each harness's own pattern
+    core.write_status(tdir, {"taskId": "e-1", "state": "running"})
+    got = dict(lab.run_evals(core.load_harness("yt-ops"), core.harness_dir("yt-ops"), tdir))
+    check("harness evals: yt-ops fails a task that is not done", got == {"evals/result.py": "fail"}, got)
+    core.write_status(tdir, {"taskId": "e-1", "state": "done"})
+    got = dict(lab.run_evals(core.load_harness("yt-ops"), core.harness_dir("yt-ops"), tdir))
+    check("harness evals: yt-ops passes a done task with a result", got == {"evals/result.py": "pass"}, got)
+    for name, without, good in (("yt-code", "title: x\n", "abc1234 Fix the title\n"),
+                                ("yt-wiki", "title: x\n", "Sources\n- inbox/2026-01-01-x.md\n"),
+                                ("yt-improve", "title: x\n", "Check after 3 tasks with yt improve yt-ops.\n")):
+        verdicts = []
+        for text in (without, good):
+            with open(os.path.join(tdir, "out", "result.md"), "w") as f:
+                f.write(text)
+            verdicts.append(dict(lab.run_evals(core.load_harness(name), core.harness_dir(name), tdir)))
+        check(f"harness evals: {name} needs its pattern", [list(v.values()) for v in verdicts] == [["fail"], ["pass"]],
+              verdicts)
+    with open(os.path.join(tdir, "out", "result.md"), "w") as f:
+        f.write("key: AKIA" + "ABCDEFGHIJKLMNOP\n")
+    got = dict(lab.run_evals(core.load_harness("yt-ops"), core.harness_dir("yt-ops"), tdir))
+    check("harness evals: a result yt-mask would mask fails", got == {"evals/result.py": "fail"}, got)
     # improvement proposals: the brief carries numbers and shapes, never task content
     lab.eval_record("e-1", {"harness": "h", "runtime": "claude"}, {"harnessVersion": "0.2.0"}, "fail")
     brief = lab.improve_brief("h")

@@ -10,6 +10,6 @@ sandbox:                   # the session can write the vault and its out/, nothi
   read: ["<task-folder>", "<vault>"]
   write: ["<task-folder>/out/", "<vault>"]
 deadlineDefault: 1h
-evals: []
+evals: ["evals/result.py"]
 runtimes: []               # list only runtimes that passed the equivalence tests
 experimental: true

@@ -17,7 +17,7 @@ Steps:
      Claude interface mods in mods/ (theme file ~/yt-local/mods-theme.json; "mods": false
      in ~/yt-local/config.json leaves them out)
   5. Link the yt commands (yt, yt-spawn, yt-doctor, yt-export, yt-import, ...) into ~/.local/bin
-  6. Check that Claude and Codex global setup match (instructions, plugins; user hooks are off in sub-sessions);
+  6. Check that Claude and Codex global setup match (instructions, plugins; sub-sessions run only their harness hooks);
      report only, never edits ~/.claude or ~/.codex instruction files
 
 Exit codes: 0 ready, 1 something is still missing or failed.
@@ -353,7 +353,7 @@ def step_commands(check_only):
 def step_parity():
     drift = parity.problems()
     if not drift:
-        say("ok", "Claude and Codex global setup match (instructions, plugins; user hooks are off in sub-sessions)")
+        say("ok", "Claude and Codex global setup match (instructions, plugins; sub-sessions run only their harness hooks)")
         return True
     for p in drift:
         say("drift", p)

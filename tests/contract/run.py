@@ -119,10 +119,17 @@ def entry(task_id):
     return core.load_sessions()["sessions"].get(task_id, {})
 
 
-def hooks_off(argv):
-    """Claude: the --settings value turns all hooks off (it may also carry env)."""
-    i = argv.index("--settings") if "--settings" in argv else -1
-    return i >= 0 and json.loads(argv[i + 1]).get("disableAllHooks") is True
+def isolated(argv, rt):
+    """Only the harness plugin and its hooks: Claude skips user settings (hooks, plugins,
+    mods); Codex keeps hooks on, turns user hooks and every other plugin off."""
+    if rt == "claude":
+        i = argv.index("--settings") if "--settings" in argv else -1
+        return ("--setting-sources" in argv and argv[argv.index("--setting-sources") + 1] == "project,local"
+                and i >= 0 and not {"hooks", "enabledPlugins", "disableAllHooks"} & set(json.loads(argv[i + 1]))
+                and argv[argv.index("--plugin-dir") + 1] == core.harness_dir("yt-ops"))
+    plugins = [a for a in argv if a.startswith("plugins={")]
+    return ("--dangerously-bypass-hook-trust" in argv and "features.hooks=false" not in argv and len(plugins) == 1
+            and plugins[0].count("enabled=true") == 1 and '"yt-ops@yt-harness"={enabled=true}' in plugins[0])
 
 
 def last_session(task_id):
@@ -157,8 +164,7 @@ def scenario(rt):
         and s["env"].get("ENABLE_CLAUDEAI_MCP_SERVERS") == "false"
     # Web search and fetch must stay available in sub-sessions (subagents use them).
     obs["web tools on"] = not any("WebSearch" in a or "WebFetch" in a or "web_search" in a for a in s["argv"])
-    obs["user hooks off"] = hooks_off(s["argv"]) if rt == "claude" \
-        else ("features.hooks=false" in s["argv"])
+    obs["only harness plugin and hooks"] = isolated(s["argv"], rt)
     obs["prompt"] = s["argv"][-1]
     obs["env"] = sorted(s["env"])
     obs["env leaks nothing"] = sorted(k for k in s["env"] if k.startswith(("CLAUDE", "CODEX_SESSION", "ORCA_", "TMUX"))
@@ -224,8 +230,7 @@ def scenario(rt):
     r = last_session(c)
     sid = entry(c)["runtimeSessionId"]
     obs["resume prompt"] = r["argv"][-1]
-    obs["resume keeps hooks off"] = hooks_off(r["argv"]) if rt == "claude" \
-        else ("features.hooks=false" in r["argv"])
+    obs["resume keeps isolation"] = isolated(r["argv"], rt)
     obs["resume uses same session"] = sid in r["argv"] and (
         "--resume" in r["argv"] if rt == "claude" else "resume" in r["argv"])
     obs["forget while alive"] = yt("forget", c)
@@ -266,14 +271,14 @@ def scenario(rt):
 
 
 EXPECTED = {
-    "spawn": 0, "env leaks nothing": True, "user hooks off": True, "wrapper": WRAPPER, "web tools on": True, "MCP and connectors off": True, "initial state": "running", "has session id": True,
+    "spawn": 0, "env leaks nothing": True, "only harness plugin and hooks": True, "wrapper": WRAPPER, "web tools on": True, "MCP and connectors off": True, "initial state": "running", "has session id": True,
     "duplicate spawn": 1, "waiting without question": 1, "waiting": (0, "waiting-human"),
     "question kept": "Which file?", "back to running": (0, "running", False),
     "done without result": (1, "running"), "done with an empty result": (1, "running"), "done": (0, "done"), "change after done": (1, "done"),
     "bad state": 1, "failed without reason": 1, "failed": (0, "failed"), "change after failed": (1, "failed"),
     "stale": ("stale", "waiting-human"), "resume while alive": 1, "stop": (0, False), "resume": 0,
     "state after resume": ("waiting-human", False, False), "deadline extended": True,
-    "resume uses same session": True, "resume keeps hooks off": True, "forget while alive": 1, "done without result.md": "failed",
+    "resume uses same session": True, "resume keeps isolation": True, "forget while alive": 1, "done without result.md": "failed",
     "unreadable status": "failed", "dirty out/": (1, False), "concurrency": [0, 0, 0, 2],
     "forget stopped": (0, False), "collect done": 0, "collect not finished": 3, "collect failed": 4,
     "answer when not waiting": 1, "answer": (0, True), "route": (0, 1), "spawn refused when harness off": (1, False),
@@ -437,11 +442,10 @@ def test_parity():
     stray = {"env": {"CLAUDE_CODE_PLUGIN_DIRS": "/x/yt-core:/elsewhere/token-usage"}}
     check("parity: a plugin dir outside mods/ still counts",
           len(real.problems(fake_home(md, md, stray, None, toml), require_both=False)) == 1)
-    settings = json.loads(launch.claude_no_hooks(home)[1])
-    check("sub-session: interface mods dropped, other plugin dirs kept",
-          settings == {"disableAllHooks": True, "env": {"CLAUDE_CODE_PLUGIN_DIRS": "/x/yt-core"}}, settings)
-    settings = json.loads(launch.claude_no_hooks(fake_home(md, md, linked, None, toml))[1])
-    check("sub-session: no override when no mod is linked", settings == {"disableAllHooks": True}, settings)
+    argv = launch.claude_isolation(home)
+    settings = json.loads(argv[argv.index("--settings") + 1])
+    check("sub-session: no plugin dirs (mods, yt-core) and no user settings",
+          "env" not in settings and argv[:2] == ["--setting-sources", "project,local"], argv)
 
 
 # ---------- live ----------

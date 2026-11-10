@@ -10,6 +10,6 @@ sandbox:
   read: ["<task-folder>"]
   write: ["<task-folder>/out/"]
 deadlineDefault: 2h
-evals: []
+evals: ["evals/result.py"]
 runtimes: []               # filled in after the milestone equivalence tests pass
 experimental: false

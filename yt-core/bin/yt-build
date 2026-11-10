@@ -11,6 +11,7 @@ Sources -> generated files:
       -> <plugin>/.claude-plugin/plugin.json, <plugin>/.codex-plugin/plugin.json
   every plugin
       -> .claude-plugin/marketplace.json, .agents/plugins/marketplace.json
+      -> <plugin>/hooks/hooks.json (one file; Claude and Codex read the same format)
 
 A harness is a top-level folder with a harness.yaml. Never edit generated files by hand.
 Exit codes: 0 up to date (or written), 1 out of date (--check) or bad source.
@@ -51,8 +52,28 @@ def load_sources():
     return sources
 
 
+def _hook(command, timeout=10):
+    return [{"hooks": [{"type": "command", "command": command, "timeout": timeout}]}]
+
+
+# yt-core runs in the human's own sessions. Harness plugins run only in sub-sessions, where
+# yt-spawn sets $YT_CORE; the guard there is the same one the human's sessions use.
+CORE_HOOKS = {
+    "PreToolUse": _hook('python3 "${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}/bin/yt-guard"'),
+    "UserPromptSubmit": _hook('python3 "${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}/bin/yt-hook" prompt'),
+}
+SUB = '[ -z "${YT_CORE-}" ] || python3 "$YT_CORE/bin/%s"%s'
+HARNESS_HOOKS = {
+    "SessionStart": [{"matcher": "startup|resume|clear|compact", **_hook(SUB % ("yt-hook", " session-start"))[0]}],
+    "PreToolUse": _hook(SUB % ("yt-guard", "")),
+    "Stop": _hook(SUB % ("yt-hook", " stop")),
+}
+
+
 def outputs(sources):
     files = {}
+    for folder, _ in sources:
+        files[f"{folder}/hooks/hooks.json"] = {"hooks": CORE_HOOKS if folder == "yt-core" else HARNESS_HOOKS}
     for folder, s in sources:
         files[f"{folder}/.claude-plugin/plugin.json"] = {
             "name": s["id"], "version": str(s["version"]), "description": s["description"]}

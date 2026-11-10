@@ -10,6 +10,6 @@ sandbox:                   # the clone and out/ are writable; yt enforces the sc
   read: ["<task-folder>"]
   write: ["<task-folder>/out/", "<repo>"]
 deadlineDefault: 1h
-evals: []
+evals: ["evals/result.py"]
 runtimes: []               # list only runtimes that passed the equivalence tests
 experimental: true

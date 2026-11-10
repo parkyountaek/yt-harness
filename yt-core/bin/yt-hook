@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Hook entry point shared by Claude and Codex (both use the same hooks.json format).
+
+Usage (from a plugin's hooks/hooks.json; reads the hook event JSON on stdin):
+  yt-hook session-start   sub-session: put the work order, state, and harness skills in context
+  yt-hook stop            sub-session: refuse to end while the task is still `running`
+  yt-hook prompt          human session: mention tasks that newly need the human, once each
+                          (off with "hookHints": false in ~/yt-local/config.json)
+
+Sub-session hooks act only when $YT_TASK_DIR is set (yt-spawn sets it); elsewhere they
+do nothing. Stop blocks with exit code 2 and the reason on stderr, which both runtimes
+read as "keep working"; after MAX_BLOCKS refusals without a status change it lets the
+session end, so a stuck session cannot loop forever (the panel then shows it as ended).
+Exit codes: 0 allow (stdout is context), 2 block (stop only).
+"""
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
+from ytlib import core  # noqa: E402
+
+MAX_BLOCKS = 2
+SETTLED = ("done", "failed", "waiting-human", "stale")
+
+
+def _event():
+    try:
+        data = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _harness_skills(task_dir):
+    """Skill names of the task's harness (from the work order's harness line)."""
+    harness = _task_harness(task_dir)
+    skills = os.path.join(core.harness_dir(harness), "skills") if harness else None
+    if not (skills and os.path.isdir(skills)):
+        return harness, []
+    return harness, sorted(n for n in os.listdir(skills) if os.path.isfile(os.path.join(skills, n, "SKILL.md")))
+
+
+def _task_harness(task_dir):
+    try:
+        with open(os.path.join(task_dir, "TASK.md"), encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("- Harness: "):
+                    return line.split()[2]
+    except OSError:
+        pass
+    return None
+
+
+def session_start(event):
+    task_dir = os.environ.get("YT_TASK_DIR")
+    if not task_dir:
+        return 0
+    state = (core.read_status(task_dir) or {}).get("state") or "unknown"
+    harness, skills = _harness_skills(task_dir)
+    lines = [f"yt-harness sub-session for task {os.path.basename(task_dir)} (harness {harness or '?'}).",
+             f"Work order: {task_dir}/TASK.md. Current state: {state}."]
+    if skills:
+        lines.append("Follow it with the harness skill " + ", ".join(f"`{s}`" for s in skills) + ".")
+    if event.get("source") in ("compact", "clear", "resume"):
+        lines.append("Your context was reset or resumed: re-read TASK.md and out/status.json before you continue.")
+    lines.append("Report only with `yt-status`. The session may end only after `yt-status done`, "
+                 "`yt-status failed --reason ...`, or `yt-status waiting-human --question ...`.")
+    print("\n".join(lines))
+    return 0
+
+
+def stop(event):
+    task_dir = os.environ.get("YT_TASK_DIR")
+    if not task_dir:
+        return 0
+    status = core.read_status(task_dir) or {}
+    state = status.get("state")
+    if state in SETTLED or not state:
+        return 0
+    counter = os.path.join(task_dir, "tmp", "stop-hook.json")
+    seen = core.read_json(counter, {}) or {}
+    mark = status.get("updatedAt")
+    count = seen.get("count", 0) if seen.get("mark") == mark else 0
+    if count >= MAX_BLOCKS:
+        return 0
+    os.makedirs(os.path.dirname(counter), exist_ok=True)
+    core.write_json_atomic(counter, {"mark": mark, "count": count + 1})
+    result = core.result_path(task_dir)
+    if os.path.isfile(result) and os.path.getsize(result) > 0:
+        why = "out/result.md is written but the task is still `running`: run `yt-status done` now."
+    else:
+        why = ("The task is still `running`. Finish the work order in TASK.md: write out/result.md and run "
+               "`yt-status done`; if you need the human, run `yt-status waiting-human --question \"...\"`; "
+               "if you cannot finish, run `yt-status failed --reason \"...\"`.")
+    print(why, file=sys.stderr)
+    return 2
+
+
+def prompt(event):
+    """Human session: name each task that newly needs the human. Told once, across this hook,
+    `yt watch`, and the work-alerts mod (they share ~/yt-local/data/alerted.json)."""
+    if os.environ.get("YT_TASK_DIR") or (core.read_json(core.CONFIG, {}) or {}).get("hookHints") is False:
+        return 0
+    if not os.path.isfile(core.SESSIONS):
+        return 0
+    from ytlib import panel, watch
+    texts = watch.tell(panel.snapshot(), send=lambda text: None)
+    if texts:
+        print("yt-harness: tell the human, one line each, before anything else:")
+        print("\n".join(f"- {t}" for t in texts))
+    return 0
+
+
+COMMANDS = {"session-start": session_start, "stop": stop, "prompt": prompt}
+
+
+def main(argv):
+    if len(argv) != 1 or argv[0] not in COMMANDS:
+        print(__doc__, file=sys.stderr)
+        return 1
+    event = _event()
+    try:
+        return COMMANDS[argv[0]](event)
+    except Exception as e:  # noqa: BLE001  a hook must never break the session it serves
+        print(f"yt-hook {argv[0]}: {e}", file=sys.stderr)
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

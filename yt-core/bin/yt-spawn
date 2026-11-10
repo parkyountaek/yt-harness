@@ -127,6 +127,10 @@ def main(argv):
                     + "\n  ".join(drift) + "\nFix the files, then retry (yt-setup --check shows this too).")
     if harness.get("experimental") and not args.experimental:
         return fail(f"harness {args.harness} is experimental; pass --experimental to use it for this task")
+    passed = harness.get("runtimes") or []
+    if passed and args.runtime not in passed and not args.experimental:
+        return fail(f"harness {args.harness} has passed its live tests on {', '.join(passed)} only; "
+                    f"pass --experimental to try it on {args.runtime}")
     if args.harness in core.disabled_harnesses():
         return fail(f"harness {args.harness} is turned off; `yt harness on {args.harness}` to use it")
     vault = source = None

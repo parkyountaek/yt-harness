@@ -1,0 +1,38 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"${YT_CORE-}\" ] || python3 \"$YT_CORE/bin/yt-hook\" session-start",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"${YT_CORE-}\" ] || python3 \"$YT_CORE/bin/yt-guard\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"${YT_CORE-}\" ] || python3 \"$YT_CORE/bin/yt-hook\" stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
