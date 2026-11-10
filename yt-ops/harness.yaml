@@ -11,5 +11,5 @@ sandbox:
   write: ["<task-folder>/out/"]
 deadlineDefault: 2h
 evals: ["evals/result.py"]
-runtimes: []               # filled in after the milestone equivalence tests pass
+runtimes: [claude, codex]   # passed the contract tests and live evals on both
 experimental: false

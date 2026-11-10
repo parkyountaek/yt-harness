@@ -51,7 +51,7 @@ sandbox profile), not in runtime-specific features.
 | `yt-core/lib/ytlib/platform/` | One module per OS: package install and upgrade, sandbox backend |
 | `yt-core/lib/ytlib/runners/` | Runner adapters: `tmux` (default), `headless`, `orca` |
 | `yt-ops/` | First harness: read-only investigation |
-| `yt-wiki/` | Knowledge vault harness: capture notes, answer from them (experimental) |
+| `yt-wiki/` | Knowledge vault harness: capture notes, answer from them |
 | `templates/harness.yaml` | Starting point for a new harness |
 | `.githooks/` | Repo guard (pre-commit and pre-push) |
 | `tests/` | Repo guard, sandbox, and instruction-length tests |
@@ -248,7 +248,7 @@ read-only and nothing else of the source.
 
 - `folderKind: repo` (read-only investigation): the clone is readable; only `out/` is writable.
 - `folderKind: worktree` (code changes): the clone is writable, on branch `yt/<id>` from the
-  source's HEAD. The sandbox policy names it `<repo>`. The `yt-code` harness (experimental)
+  source's HEAD. The sandbox policy names it `<repo>`. The `yt-code` harness
   commits there, never pushes, and reports the commits and checks in `result.md`.
 - `yt collect <id>` lists the branch's commits and diff size; `yt bring <id>` fetches the
   branch into the source as `yt/<id>`. It never merges, checks out, or overwrites a branch.
@@ -269,7 +269,7 @@ collected, and brought back as a branch.
 
 ### Improvement proposals (`yt-improve`)
 
-`yt improve <harness> --propose` starts the experimental `yt-improve` harness on a clone
+`yt improve <harness> --propose` starts the `yt-improve` harness on a clone
 of this checkout (`--repo yt-harness` is always known). Its brief holds only numbers and
 case cards. The branch may change only that harness's `skills/` and its `version:` line;
 collect lists anything else and `yt bring` refuses it. See `docs/roadmap.md`.
@@ -284,8 +284,8 @@ in `~/yt-local/config.json`:
 ```
 
 ```sh
-yt-spawn cap-001 yt-wiki --vault work-notes --experimental   # brief: what to capture
-yt-spawn ask-001 yt-wiki --vault work-notes --experimental   # brief: the question
+yt-spawn cap-001 yt-wiki --vault work-notes   # brief: what to capture
+yt-spawn ask-001 yt-wiki --vault work-notes   # brief: the question
 ```
 
 The sandbox can read and write the vault, the task folder, and nothing else. The

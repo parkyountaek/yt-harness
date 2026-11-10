@@ -11,7 +11,7 @@ goes there, so it may leave the machine after a human check.
 | Run evaluation | `yt eval`, `evals.jsonl` | ready |
 | Self-improvement | `yt improve`, `yt improve --propose`, `yt-improve` harness | ready (proposals only) |
 | Experiments | `experimental: true`, `yt-spawn --experimental`, `yt card` | ready |
-| Knowledge store (`yt-wiki`) | `folderKind: vault`, `yt-wiki` harness, `yt-mask` | experimental |
+| Knowledge store (`yt-wiki`) | `folderKind: vault`, `yt-wiki` harness, `yt-mask` | ready |
 | Control panel and retirement | `yt panel`, `panel` skill | ready |
 
 ## Harness generation
@@ -43,6 +43,11 @@ environment and a 60-second limit, and prints `pass` or `fail` on its last line.
 fail records `fail`, all pass records `pass` (judge `deterministic`); an error (a
 crash, no verdict, a path outside the harness) records nothing. A later `yt eval`
 replaces it. Only the verdict is kept, never the script's output.
+
+Every shipped harness has `evals/result.py`, built on `ytlib/evalkit.py`: the task
+reported `done`, `result.md` is not empty and has nothing `yt-mask` would mask, and
+it shows the harness's own mark (a commit for `yt-code`, a note path for `yt-wiki`,
+how to judge it with `yt improve` for `yt-improve`).
 
 ## Self-improvement
 
@@ -76,7 +81,12 @@ that no change was justified and committed nothing.
 
 - A harness with `experimental: true` starts only with `yt-spawn --experimental`.
   An experimental harness is adopted by setting `experimental: false` once it passes
-  the contract tests and its evals.
+  the contract tests and its evals, and by listing in `runtimes:` each runtime its
+  evals passed on in a live run. Once `runtimes:` is set, `yt-spawn` refuses any other
+  runtime without `--experimental`.
+- Adopted 2026-11-10: `yt-ops`, `yt-code`, `yt-wiki`, and `yt-improve` passed their
+  evals in live runs on Claude and on Codex (`runtimes: [claude, codex]`). Both
+  runtimes produced the same `yt-code` change.
 - `yt card <task-id>` prints a case card. It holds the harness, version, runtime,
   final state, input file kinds by extension, human answers, resumes, steps, turns,
   tokens, and the eval verdict. It holds no names, values, or text. A human checks
@@ -97,7 +107,7 @@ that no change was justified and committed nothing.
 - Only generic parts live here. Notes, rule files, and operating commands stay in
   the vault itself.
 - Verified live on both runtimes: capture with masking, and ask with sources and an
-  unchanged vault. The harness stays experimental until its evals pass.
+  unchanged vault. Its evals pass on both runtimes, so it is adopted.
 
 ## Control panel and retirement
 

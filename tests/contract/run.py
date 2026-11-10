@@ -322,7 +322,16 @@ def test_vault():
             run = lambda tid, *extra: quiet(spawn_mod.main, [tid, "yt-wiki", "--runtime", rt, "--runner", "fake",  # noqa: E731
                                                              "--deadline", FIXED_DEADLINE, "--brief", brief, *extra])[0]
             check(f"{rt}: vault harness refuses to start without --vault", run(f"nv-{rt}", "--experimental") == 1)
-            check(f"{rt}: experimental harness refuses without --experimental", run(f"ne-{rt}", "--vault", "v") == 1)
+            real_load = core.load_harness
+            try:
+                core.load_harness = lambda n: {**real_load(n), "experimental": True}
+                check(f"{rt}: experimental harness refuses without --experimental", run(f"ne-{rt}", "--vault", "v") == 1)
+                other = "codex" if rt == "claude" else "claude"
+                core.load_harness = lambda n: {**real_load(n), "runtimes": [other]}
+                check(f"{rt}: a runtime not in runtimes: refuses without --experimental",
+                      run(f"nr-{rt}", "--vault", "v") == 1)
+            finally:
+                core.load_harness = real_load
             check(f"{rt}: unknown vault refused", run(f"uv-{rt}", "--experimental", "--vault", "nope") == 1)
             check(f"{rt}: vault harness starts", run(f"va-{rt}", "--experimental", "--vault", "v") == 0)
             e = entry(f"va-{rt}")

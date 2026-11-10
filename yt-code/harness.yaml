@@ -11,5 +11,5 @@ sandbox:                   # the clone and out/ are writable; the source reposit
   write: ["<task-folder>/out/", "<repo>"]
 deadlineDefault: 2h
 evals: ["evals/result.py"]
-runtimes: []               # list only runtimes that passed the equivalence tests
-experimental: true
+runtimes: [claude, codex]   # passed the contract tests and live evals on both
+experimental: false
