@@ -130,11 +130,58 @@ def export(entry):
     plat = ytplatform.load()
     argv = plat.sandbox_argv(policy, entry["runtime"], ["/bin/sh", "-c", script], profile_dir=tmp,
                              extra_read=[objects_dir(entry["repoSource"])], tmp_dir=tmp, cwd=entry["repoClone"])
-    r = subprocess.run(argv, cwd=entry["repoClone"], env=launch.session_env(task, tmp), capture_output=True,
-                       text=True, timeout=300)
-    if r.returncode != 0:
-        raise RuntimeError(f"could not export the task branch: {(r.stderr or r.stdout).strip()[:300]}")
-    return bundle if os.path.isfile(bundle) else None
+    code, output = _run_contained(argv, entry["repoClone"], launch.session_env(task, tmp))
+    if code != 0:
+        raise RuntimeError(f"could not export the task branch: {output.strip()[:300]}")
+    # tmp/ is the session's: what it leaves there must be a plain file (not a FIFO or a link).
+    return bundle if _regular(bundle) else None
+
+
+EXPORT_TIMEOUT = 300
+
+
+def _run_contained(argv, cwd, env, timeout=EXPORT_TIMEOUT):
+    """Run code the session controls: output goes to a file, not a pipe a child could hold
+    open, and on timeout the whole process group is killed. Returns (exit code, output)."""
+    import signal
+    import tempfile
+    with tempfile.TemporaryFile() as log:
+        proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                start_new_session=True)
+        try:
+            code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            code = None
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)   # leftovers of the run, finished or not
+        except (ProcessLookupError, PermissionError):
+            pass
+        if code is None:
+            proc.wait()
+            return 1, f"timed out after {timeout}s"
+        log.seek(0)
+        return code, log.read(4096).decode("utf-8", "replace")
+
+
+def _regular(path):
+    import stat
+    try:
+        return stat.S_ISREG(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
+def _count_lines(path, limit=1 << 20):
+    """Non-empty lines of a file the session could have replaced; never blocks or follows links."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return 0
+    with os.fdopen(fd, "rb") as f:
+        import stat
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            return 0
+        return sum(1 for line in f.read(limit).splitlines() if line.strip())
 
 
 def quarantine(entry):
@@ -163,8 +210,27 @@ def _version_only(q, base, branch, path):
     return len(changed) == 1 and all(VERSION_LINE.fullmatch(x[changed[0]]) for x in (old, new))
 
 
+REGULAR = ("100644", "100755")
+
+
+def _changes(q, a, b):
+    """[(old mode, new mode, path)] between two commits, renames split into delete and add."""
+    raw = _git("diff", "--raw", "-z", "--no-renames", "--no-abbrev", a, b, cwd=q, raw=True).split(b"\0")
+    out = []
+    for meta, path in zip(raw[0::2], raw[1::2]):
+        modes = meta.decode("ascii", "replace").lstrip(":").split()
+        if len(modes) >= 2:
+            out.append((modes[0], modes[1], path.decode("utf-8", "replace")))
+    return out
+
+
 def scope_problems(entry, q):
-    """Changes on the task branch outside its scope (empty when it has no scope)."""
+    """Changes on the task branch outside its scope (empty when it has no scope).
+
+    Every commit is checked against its parent, not only the branch tip against the
+    base: bring fetches the whole history, so content added and removed again on the
+    way would still reach the human's repository. Merges and new roots are refused.
+    """
     scope = entry.get("repoScope")
     if not scope or not entry.get("repoBranch"):
         return []
@@ -172,16 +238,22 @@ def scope_problems(entry, q):
     version_only = {s[:-len(":version")] for s in scope if s.endswith(":version")}
     allowed = [s for s in scope if not s.endswith(":version")]
     out = []
-    names = _git("diff", "--name-only", "-z", "--no-renames", base, branch, cwd=q, raw=True)
-    for path in [p.decode("utf-8", "replace") for p in names.split(b"\0") if p]:
-        if path in version_only:
-            if not _version_only(q, base, branch, path):
-                out.append(f"{path}: only its version line may change")
-        elif any(part.startswith(".") for part in path.split("/")):
-            out.append(f"{path}: dotfiles (.gitattributes, .gitignore, ...) are never in scope")
-        elif not any(path == a or (a.endswith("/") and path.startswith(a)) for a in allowed):
-            out.append(f"{path}: outside the task's scope")
-    return out
+    for line in _git("rev-list", "--parents", f"{base}..{branch}", cwd=q).splitlines():
+        commit, *parents = line.split()
+        if len(parents) != 1:
+            out.append(f"{commit[:12]}: merge or root commits are never in scope")
+            continue
+        for old_mode, new_mode, path in _changes(q, parents[0], commit):
+            if path in version_only:
+                if old_mode != "100644" or new_mode != "100644" or not _version_only(q, parents[0], commit, path):
+                    out.append(f"{path}: only its version line may change")
+            elif any(part.startswith(".") for part in path.split("/")):
+                out.append(f"{path}: dotfiles (.gitattributes, .gitignore, ...) are never in scope")
+            elif not any(path == a or (a.endswith("/") and path.startswith(a)) for a in allowed):
+                out.append(f"{path}: outside the task's scope")
+            elif new_mode not in REGULAR + ("000000",):
+                out.append(f"{path}: symlinks and submodules are never in scope")
+    return list(dict.fromkeys(out))
 
 
 def summary(entry):
@@ -196,11 +268,7 @@ def summary(entry):
     out = [f"branch {branch}: {len(log)} commit(s) on top of {base[:12]}"]
     out += [f"  {line}" for line in log[:20]]
     out += [f"  {stat[-1].strip()}"] if stat else []
-    try:
-        with open(os.path.join(core.task_dir(entry["taskId"]), "tmp", "branch.dirty"), encoding="utf-8") as f:
-            dirty = sum(1 for line in f if line.strip())
-    except OSError:
-        dirty = 0
+    dirty = _count_lines(os.path.join(core.task_dir(entry["taskId"]), "tmp", "branch.dirty"))
     if dirty:
         out.append(f"  {dirty} uncommitted change(s) in the clone are not part of the branch")
     out += [f"  out of scope: {p}" for p in scope_problems(entry, q)]

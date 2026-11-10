@@ -65,9 +65,16 @@ def codex_isolation(harness, home=None):
             for g, group in enumerate(groups if isinstance(groups, list) else []):
                 for h, _ in enumerate((group or {}).get("hooks") or []):
                     off.append(f"{path}:{_snake(event)}:{g}:{h}")
-    flags = ["--dangerously-bypass-hook-trust"]
-    if off:
-        flags += ["-c", "hooks.state={" + ",".join(f"{json.dumps(k)}={{enabled=false}}" for k in off) + "}"]
+    # The harness's own hooks are named on, so a human's features.hooks=false or a stale
+    # per-hook state cannot drop them (-c values merge into the user's config).
+    on = []
+    with open(os.path.join(core.harness_dir(harness), "hooks", "hooks.json"), encoding="utf-8") as f:
+        for event, groups in (json.load(f).get("hooks") or {}).items():
+            for g, group in enumerate(groups):
+                for h, _ in enumerate(group.get("hooks") or []):
+                    on.append(f"{harness}@yt-harness:hooks/hooks.json:{_snake(event)}:{g}:{h}")
+    state = [f"{json.dumps(k)}={{enabled=false}}" for k in off] + [f"{json.dumps(k)}={{enabled=true}}" for k in on]
+    flags = ["--dangerously-bypass-hook-trust", "-c", "features.hooks=true", "-c", "hooks.state={" + ",".join(state) + "}"]
     # One inline table names every plugin, so it reads the same whether -c merges or replaces.
     mine = f"{harness}@yt-harness"
     names = sorted(set(config.get("plugins") or {}) | {mine})
@@ -143,6 +150,25 @@ def session_env(task_dir, tmp_dir):
         "PATH": os.pathsep.join([os.path.join(core.CORE, "bin"), py_bin, os.environ.get("PATH", "")]),
     })
     return env
+
+
+RUNTIME_CONFIG = (".claude", ".codex")
+
+
+def clear_runtime_config(out_dir, tmp_dir):
+    """out/ is the session's working directory and writable, so a session could leave project
+    settings there (hooks, plugins) for its next start. Move them aside before every start."""
+    moved = []
+    for name in RUNTIME_CONFIG:
+        path = os.path.join(out_dir, name)
+        if os.path.lexists(path):
+            dest = os.path.join(tmp_dir, f"set-aside-{int(time.time())}-{name.lstrip('.')}")
+            os.makedirs(tmp_dir, exist_ok=True)
+            os.rename(path, dest)
+            moved.append(name)
+    if moved:
+        core.log_event("runtime-config-set-aside", names=moved)
+    return moved
 
 
 STARTUP_GRACE = 4  # seconds a runtime must stay alive to count as started
@@ -221,6 +247,7 @@ def start(task_id, harness_name, harness, runtime, runner_name, session_id, resu
         extra_read.append(os.path.join(repo_source, ".git", "objects"))
     tmp_dir = os.path.join(task_dir, "tmp")
     os.makedirs(tmp_dir, exist_ok=True)
+    clear_runtime_config(out_dir, tmp_dir)
     if runtime == "claude":
         # Claude makes a --plugin-dir plugin's data folder before it runs the plugin's hooks;
         # the sandbox cannot create it under ~/.claude, so it is made here (it stays empty).

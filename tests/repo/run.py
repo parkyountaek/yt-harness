@@ -174,6 +174,22 @@ def scoped(src):
         check("attack: bring refuses the replaced branch", False)
     except RuntimeError:
         check("attack: bring refuses the replaced branch", True)
+    mid = attempt("mid", [("app.txt", None, "smuggled\n")])
+    os.remove(os.path.join(mid["repoClone"], "app.txt"))
+    git("commit", "-q", "-am", "hide it", cwd=mid["repoClone"])
+    check("attack: content added and removed on the way is refused (every commit is checked)",
+          any("app.txt" in p for p in gitwork.scope_problems(mid, gitwork.quarantine(mid))))
+    link = prep("sc-link", src, writable=True, scope=scope)
+    os.symlink("/etc/hosts", os.path.join(link["repoClone"], "h", "skills", "s", "hosts"))
+    git("add", "-A", cwd=link["repoClone"])
+    git("commit", "-q", "-m", "link", cwd=link["repoClone"])
+    check("attack: a symlink inside an allowed folder is refused",
+          any("symlinks" in p for p in gitwork.scope_problems(link, gitwork.quarantine(link))))
+    mode = attempt("mode", [("h/harness.yaml", "version: 0.1.0", "version: 0.1.1")])
+    git("update-index", "--chmod=+x", "h/harness.yaml", cwd=mode["repoClone"])
+    git("commit", "-q", "-m", "mode", cwd=mode["repoClone"])
+    check("attack: a mode change on a version-only file is refused",
+          any("version line" in p for p in gitwork.scope_problems(mode, gitwork.quarantine(mode))))
     dot = attempt("dot", [("h/skills/s/.gitattributes", None, "* diff=x\n")])
     check("scope: a dotfile inside an allowed folder is refused",
           any("dotfiles" in p for p in gitwork.scope_problems(dot, gitwork.quarantine(dot))))
@@ -215,9 +231,10 @@ def sandboxed(src):
     check("sandbox: the session can commit in the clone", r.returncode == 0 and "sandboxed" in r.stdout, r.stderr[-300:])
     check("sandbox: git prints no warnings about hidden user config", "warning" not in r.stderr.lower(), r.stderr[-300:])
     out = os.path.join(task, "out")
-    r = run(f"zsh -c 'cat > {out}/heredoc.txt <<EOF\nhello\nEOF'")
-    check("sandbox: a zsh here-document can be written (TMPPREFIX)",
-          r.returncode == 0 and open(os.path.join(out, "heredoc.txt")).read() == "hello\n", r.stderr[-200:])
+    if shutil.which("zsh"):   # zsh is the default shell on macOS; Linux images often lack it
+        r = run(f"zsh -c 'cat > {out}/heredoc.txt <<EOF\nhello\nEOF'")
+        check("sandbox: a zsh here-document can be written (TMPPREFIX)",
+              r.returncode == 0 and open(os.path.join(out, "heredoc.txt")).read() == "hello\n", r.stderr[-200:])
     # On Linux the source's folders above .git/objects exist only in the session's throwaway
     # tmpfs view, so a write there can succeed without reaching the disk: judge the real files.
     run(f"echo x >> {src}/app.txt")
@@ -232,8 +249,29 @@ def sandboxed(src):
           and not os.path.exists(os.path.join(src, ".git", "hooks", "pre-commit")))
 
 
+def contained():
+    """Code the session controls runs with no pipes to hold and a process-group kill."""
+    import time
+    t = time.time()
+    code, out = gitwork._run_contained(["/bin/sh", "-c", "(sleep 30 &) ; sleep 30"], ROOT, dict(os.environ), timeout=1)
+    check("export: a timeout kills the run and its children, with no wait on their output",
+          code == 1 and "timed out" in out and time.time() - t < 10, (code, out, time.time() - t))
+    t = time.time()
+    code, out = gitwork._run_contained(["/bin/sh", "-c", "(sleep 30 &) ; printf '\\377 done'"], ROOT, dict(os.environ))
+    check("export: a child left running does not hold yt", code == 0 and time.time() - t < 10, time.time() - t)
+    check("export: output that is not UTF-8 does not crash", "done" in out, out)
+    fifo = os.path.join(ROOT, "branch.dirty")
+    os.mkfifo(fifo)
+    check("summary: a FIFO in place of branch.dirty is not read", gitwork._count_lines(fifo) == 0)
+    check("export: a FIFO in place of the bundle is not used", not gitwork._regular(fifo))
+    os.remove(fifo)
+    os.symlink("/etc/hosts", fifo)
+    check("summary: a symlink in place of branch.dirty is not followed", gitwork._count_lines(fifo) == 0)
+
+
 def main():
     try:
+        contained()
         src = make_source()
         unit(src)
         sandboxed(src)

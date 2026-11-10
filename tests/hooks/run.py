@@ -91,6 +91,14 @@ def test_stop():
     set_state(task, "running")
     r = hook("stop", {}, task)
     check("stop: a status change restarts the count", r.returncode == 2, r)
+    loop = make_task("stop-loop")
+    codes = []
+    for _ in range(12):
+        seen = core.read_json(os.path.join(loop, "tmp", "stop-hook.json"), {}) or {}
+        core.write_json_atomic(os.path.join(loop, "tmp", "stop-hook.json"), {**seen, "mark": "changed-%d" % len(codes)})
+        codes.append(hook("stop", {"stop_hook_active": True}, loop).returncode)
+    check("stop: status changes in between cannot loop it forever (total cap)",
+          codes.count(2) == 6 and codes[-1] == 0, codes)
     with open(core.result_path(task), "w", encoding="utf-8") as f:
         f.write("answer\n")
     time.sleep(1.1)
@@ -156,12 +164,24 @@ def test_isolation():
             f"{home}/.codex/config.toml:session_start:0:0"]
     check("codex: every user hook is turned off by its key",
           all(f'"{k}"={{enabled=false}}' in state for k in keys) and state.count("enabled=false") == 5, state)
+    check("codex: the harness hooks are named on", state.count("enabled=true") == 3
+          and '"yt-ops@yt-harness:hooks/hooks.json:stop:0:0"={enabled=true}' in state, state)
     plugins = next(f for f in flags if f.startswith("plugins="))
     check("codex: only the harness plugin is on",
           plugins == 'plugins={"other@m"={enabled=false},"yt-ops@yt-harness"={enabled=true}}', plugins)
-    check("codex: no user hooks means no state override",
-          not any(f.startswith("hooks.state=") for f in launch.codex_isolation("yt-ops", fake_home())))
-    check("codex: features.hooks stays on", "features.hooks=false" not in flags)
+    bare = next(f for f in launch.codex_isolation("yt-ops", fake_home()) if f.startswith("hooks.state="))
+    check("codex: with no user hooks only the harness hooks are listed", "enabled=false" not in bare, bare)
+    check("codex: hooks are switched on even if the human turned them off", "features.hooks=true" in flags, flags)
+    out = os.path.join(LOCAL, "cfg", "out")
+    tmp = os.path.join(LOCAL, "cfg", "tmp")
+    os.makedirs(os.path.join(out, ".claude"))
+    os.makedirs(os.path.join(out, ".codex"))
+    with open(os.path.join(out, ".claude", "settings.local.json"), "w") as f:
+        f.write('{"hooks": {}}')
+    moved = launch.clear_runtime_config(out, tmp)
+    check("start: project settings the session left in out/ are set aside",
+          sorted(moved) == [".claude", ".codex"] and not os.path.exists(os.path.join(out, ".claude"))
+          and len(os.listdir(tmp)) == 2, (moved, os.listdir(tmp)))
 
 
 def main():
