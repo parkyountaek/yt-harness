@@ -1,6 +1,6 @@
 {
   "name": "yt-code",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Code change harness: works on a private clone, commits on branch yt/<task id>, never pushes",
   "skills": "./skills/",
   "interface": {

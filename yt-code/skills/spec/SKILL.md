@@ -20,6 +20,9 @@ description: Write a specification before code for a yt-code work order, and imp
 6. When it does: implement exactly the behavior the spec lists, run the repository's
    tests or checks, and add a test only for behavior that has none. Commit
    separately. If the code shows the spec is wrong, fix the spec in the same commit
-   and say so.
-7. `out/result.md`: the spec path, its open questions, what was implemented (or
+   and say so. Once it is fully implemented and the checks pass, delete it in a last commit
+   (git history keeps it), fix links to it, and rerun the checks; skip this when only
+   part is implemented or the repository's rules keep specs.
+   A spec-only task keeps it for the implementation.
+7. `out/result.md`: the spec path (and whether it was deleted), its open questions, what was implemented (or
    "spec only"), the checks you ran, and `git log --oneline` of the branch.
