@@ -27,9 +27,11 @@ Logseq, Dendron, MkDocs or Docusaurus docs, a plain folder); write the way this 
    in the language of the brief (not of your user-level instructions). For a docs
    site, add the page to the navigation only when the navigation lists pages explicitly.
 6. Never touch the tool's own folders (`.obsidian/`, `logseq/`, templates) or other
-   notes beyond the update in step 4. In a git vault, do not commit.
+   notes beyond the update in step 4. In a git vault (the work order names a branch),
+   commit what you wrote on that branch with a one-line message; never push.
 7. Run `yt-mask <note>` on every note you wrote. If it reports anything, run
    `yt-mask --fix <note>` and mention in result.md which kinds were masked. Never keep
    secrets, credentials, or personal data in the vault.
 8. Write `out/result.md`: the vault kind, then the notes created or updated (paths
-   relative to the vault), one line each. Then `yt-status done`.
+   relative to the vault), one line each, and the commit in a git vault. Then
+   `yt-status done`.

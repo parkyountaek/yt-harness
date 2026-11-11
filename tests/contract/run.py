@@ -347,6 +347,38 @@ def test_vault():
             check(f"{rt}: resume keeps the vault", yt("resume", f"va-{rt}") == 0
                   and os.path.realpath(vault) in open(gen, encoding="utf-8").read())
             del argv
+        # A git vault is never written directly: a private clone on branch yt/<task id>.
+        for args in (["init", "-q", "-b", "main"], ["-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                                                     "commit", "-q", "--allow-empty", "-m", "first"]):
+            subprocess.run(["git", *args], cwd=vault, check=True, capture_output=True)
+        orders = {}
+        for rt in RUNTIMES:
+            stop_all()
+            tid = f"gv-{rt}"
+            check(f"{rt}: git vault starts", quiet(spawn_mod.main, [tid, "yt-wiki", "--runtime", rt, "--runner", "fake",
+                                                                   "--deadline", FIXED_DEADLINE, "--brief", brief,
+                                                                   "--vault", "v"])[0] == 0)
+            e = entry(tid)
+            clone = os.path.join(core.task_dir(tid), "repo")
+            check(f"{rt}: git vault: the session gets a clone on its own branch",
+                  e.get("vaultPath") == clone == e.get("repoClone") and e.get("repoBranch") == f"yt/{tid}"
+                  and e.get("repoSource") == os.path.realpath(vault))
+            gen = os.path.join(core.task_dir(tid), f"sandbox-{rt}." + ("bwrap" if PLATFORM == "linux" else "sb")
+                               + ".generated")
+            text = open(gen, encoding="utf-8").read()
+            check(f"{rt}: git vault: sandbox writes the clone and reads only the vault's objects",
+                  clone in text and os.path.join(os.path.realpath(vault), ".git", "objects") in text
+                  and text.count(os.path.realpath(vault)) == text.count(os.path.join(os.path.realpath(vault), ".git", "objects")))
+            with open(os.path.join(core.task_dir(tid), "TASK.md"), encoding="utf-8") as fh:
+                order = fh.read()
+            orders[rt] = order.replace(rt, "<rt>")
+            check(f"{rt}: git vault: work order names the clone and the branch",
+                  f"Vault (your private clone of {os.path.realpath(vault)}, branch yt/{tid}" in order, order)
+            stop_all()
+            check(f"{rt}: git vault: bring fetches the branch into the vault", yt("bring", tid) == 0
+                  and subprocess.run(["git", "rev-parse", "--verify", f"refs/heads/yt/{tid}"], cwd=vault,
+                                     capture_output=True).returncode == 0)
+        check("equivalent: same work order for a git vault", orders.get("claude") == orders.get("codex"))
     finally:
         shutil.rmtree(vault, ignore_errors=True)
 

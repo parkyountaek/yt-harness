@@ -1,9 +1,9 @@
 schema: 1
 id: yt-wiki
-version: 0.2.0
+version: 0.3.0
 purpose: Knowledge vault: capture notes and answer from them
 description: "Knowledge vault harness: capture notes into a vault and answer questions from it"
-tools: []
+tools: [git]               # only in a git vault: commit on the task branch
 folderKind: vault          # yt-spawn --vault <name>; vaults are listed in ~/yt-local/config.json
 permissions: write
 sandbox:                   # the session can write the vault and its out/, nothing else

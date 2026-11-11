@@ -103,6 +103,8 @@ that no change was justified and committed nothing.
   the notes and cites them. Both start with `yt-vault`, which detects the kind
   (Obsidian, Logseq, Dendron, MkDocs, Docusaurus, plain) and its conventions from the
   vault's files; the vault's own rule files win.
+- A git vault is cloned like a `worktree` repository: notes are committed on
+  `yt/<task id>` and reach the vault only through `yt bring`.
 - `yt-mask` is the masking check. It covers the repo guard's secret patterns,
   personal data, and the local blocked terms. It reports the kind and line only,
   and `--fix` masks in place.

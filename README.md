@@ -304,8 +304,10 @@ notes do, then these defaults:
 | Plain folder | `inbox/<date>-<slug>.md` | YAML: title, source, captured, tags | relative Markdown |
 
 It also names the folders to search and to skip (tool folders, templates, build
-output). In a git vault the session leaves its changes uncommitted and lists them;
-the human commits. Remote wikis (Notion, Confluence) are not vaults: sub-sessions
+output). A vault that is a git repository is never written directly: like `yt-code`,
+the session gets a private clone of it, commits its notes on branch `yt/<task id>`,
+`yt collect` shows the commits, and `yt bring <task id>` fetches the branch into the
+vault (no merge, no checkout); you review and merge it. Remote wikis (Notion, Confluence) are not vaults: sub-sessions
 have no connectors, so export one to a folder first. Cases are in `tests/wiki/run.py`.
 
 The `capture` skill writes in the vault's own way and updates an existing note

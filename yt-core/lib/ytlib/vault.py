@@ -151,6 +151,5 @@ def render(root):
             lines.append(f"{key}: {p[key]}")
     lines.append("search: " + " ".join(p["search"]))
     lines.append("skip: " + " ".join(p["skip"]))
-    lines.append("git: " + ("yes. Leave changes uncommitted and list them in result.md; the human commits"
-                            if p["git"] else "no"))
+    lines.append("git: " + ("yes. Commit on the branch the work order names; never push" if p["git"] else "no"))
     return "\n".join(lines)

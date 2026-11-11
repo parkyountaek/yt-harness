@@ -17,7 +17,8 @@ in/BRIEF.md when --brief is omitted. A folderKind: repo or worktree harness need
 private clone in <task folder>/repo (worktree: on branch yt/<task id>, brought back
 with `yt bring`), never on the repository itself. A folderKind: vault harness also needs
 --vault <name>, one of "vaults" in ~/yt-local/config.json; the session may read
-and write inside that folder.
+and write inside that folder. A vault that is a git repository is never written
+directly: the session gets a private clone on branch yt/<task id>, like worktree.
 
 Exit codes: 0 started, 1 duplicate task id, bad input, or start failure, 2 concurrency limit reached.
 """
@@ -69,6 +70,10 @@ STARTING_TIMEOUT = 120  # seconds; a reservation older than this no longer holds
 
 def folder_line(vault, source, kind, task_dir, task_id):
     """The work order's line for a vault or a repository clone; identical for every runtime."""
+    if vault and source:
+        return (f"- Vault (your private clone of {source}, branch {gitwork.BRANCH.format(task_id=task_id)}; "
+                f"read and write): {vault}\n"
+                "- Commit your notes on that branch; never push. `yt bring` hands the branch to the human.\n")
     if vault:
         return f"- Vault (read and write): {vault}\n"
     if not source:
@@ -156,6 +161,12 @@ def main(argv):
         vault = known[args.vault]
         if not (os.path.isdir(vault) and vault.startswith(core.HOME + "/")) or core.REPO.startswith(vault + "/"):
             return fail(f"vault {vault} must be an existing folder inside $HOME and must not contain the repo")
+        if os.path.lexists(os.path.join(vault, ".git")):
+            # A git vault: the session works on a private clone, never on the vault itself.
+            problem = gitwork.source_problem(vault)
+            if problem:
+                return fail(problem)
+            source, vault = vault, os.path.join(core.task_dir(args.task_id), gitwork.CLONE)
     elif kind != "neutral":
         return fail(f"folderKind {kind!r} is not implemented (neutral, vault, repo, worktree)")
     if args.vault and kind != "vault":
@@ -212,7 +223,7 @@ def main(argv):
                                   "runner": args.runner, "runnerHandle": None, "runtimeSessionId": session_id,
                                   "deadline": core.iso(deadline), "startedAt": core.iso(start), "starting": True,
                                   **({"vault": args.vault, "vaultPath": vault} if vault else {}),
-                                  **({"repo": args.repo} if source else {})}
+                                  **({"repo": args.repo} if args.repo else {})}
         core.save_sessions(reg)
 
     # The clone is made outside the lock (a large repository takes a while).
@@ -220,7 +231,7 @@ def main(argv):
     repo = {}
     if source:
         try:
-            repo = gitwork.prepare(args.task_id, source, writable=kind == "worktree", scope=args.scope)
+            repo = gitwork.prepare(args.task_id, source, writable=kind in ("worktree", "vault"), scope=args.scope)
         except Exception as e:  # noqa: BLE001  a failed clone must end in a recorded state
             error = f"clone failed: {e}"
         with core.locked(core.REGISTRY_LOCK):

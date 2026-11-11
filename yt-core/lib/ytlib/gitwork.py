@@ -9,6 +9,8 @@ session read <source>/.git/objects and nothing else of the source.
   worktree  code changes: the clone is writable, on branch yt/<task id> from the
             source's HEAD. `yt bring <task id>` fetches that branch into the source
             as a branch of the same name; it never merges, checks out, or overwrites.
+  vault     (folderKind vault, when the vault is a git repository) the same as worktree:
+            notes are committed on yt/<task id> and brought back with `yt bring`.
 
 The session can write anything in the clone, its .git included (config, commondir,
 replacement refs, hooks), so yt never runs git on the clone outside the sandbox. Once
