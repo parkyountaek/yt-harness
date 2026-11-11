@@ -58,6 +58,47 @@ def source_problem(path):
     return None
 
 
+# Tool settings yt-vault reads; often git-ignored, so a clone would lack them.
+VAULT_SETTINGS = (".obsidian/app.json", ".obsidian/templates.json", ".obsidian/daily-notes.json",
+                  "logseq/config.edn", "dendron.yml", "mkdocs.yml")
+
+
+def vault_problem(path):
+    """(why a vault folder cannot be used, or None; True when it is a git repository root).
+
+    A folder inside a repository would be written in place, so it is refused; a git
+    vault with uncommitted notes (*.md) is refused because its clone would not see them;
+    other changes (an editor's workspace file) do not count.
+    """
+    r = subprocess.run(["git", *SAFE_GIT, "rev-parse", "--show-toplevel"], cwd=path, capture_output=True,
+                       timeout=60, env={**os.environ, **ISOLATED})
+    if r.returncode != 0:
+        return None, False
+    top = os.path.realpath(r.stdout.decode("utf-8", "replace").strip())
+    if top != os.path.realpath(path):
+        return (f"vault {path} is inside the git repository {top}; register the repository root as the vault "
+                "(the session then works on a private clone)"), True
+    problem = source_problem(path)
+    if problem:
+        return problem, True
+    changed = _git("status", "--porcelain", "-z", "--untracked-files=all", cwd=path, raw=True).split(b"\0")
+    if any(entry.lower().endswith(b".md") for entry in changed):
+        return (f"vault {path} has uncommitted notes; commit them first so the session's clone sees "
+                "every note"), True
+    return None, True
+
+
+def copy_vault_settings(source, clone):
+    """Copy the tool settings yt-vault reads into the clone when git did not bring them."""
+    if os.path.isdir(os.path.join(source, ".obsidian")):
+        os.makedirs(os.path.join(clone, ".obsidian"), exist_ok=True)   # it marks the kind
+    for rel in VAULT_SETTINGS:
+        src, dst = os.path.join(source, rel), os.path.join(clone, rel)
+        if os.path.isfile(src) and not os.path.islink(src) and not os.path.lexists(dst):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copyfile(src, dst)
+
+
 # Git that yt runs itself loads no user or system config and ignores replacement refs.
 ISOLATED = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
             "GIT_NO_REPLACE_OBJECTS": "1"}

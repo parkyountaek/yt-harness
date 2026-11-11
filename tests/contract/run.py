@@ -351,6 +351,25 @@ def test_vault():
         for args in (["init", "-q", "-b", "main"], ["-c", "user.name=T", "-c", "user.email=t@example.invalid",
                                                      "commit", "-q", "--allow-empty", "-m", "first"]):
             subprocess.run(["git", *args], cwd=vault, check=True, capture_output=True)
+        # The Obsidian settings are git-ignored, as in many vaults: the clone gets a copy.
+        os.makedirs(os.path.join(vault, ".obsidian"))
+        with open(os.path.join(vault, ".obsidian", "app.json"), "w", encoding="utf-8") as fh:
+            fh.write('{"newFileLocation": "folder", "newFileFolderPath": "Zettel"}')
+        with open(os.path.join(vault, ".gitignore"), "w", encoding="utf-8") as fh:
+            fh.write(".obsidian/\n")
+        subprocess.run(["git", "add", ".gitignore"], cwd=vault, check=True)
+        subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "ignore"],
+                       cwd=vault, check=True)
+        spawn = lambda tid, rt: quiet(spawn_mod.main, [tid, "yt-wiki", "--runtime", rt, "--runner", "fake",  # noqa: E731
+                                                       "--deadline", FIXED_DEADLINE, "--brief", brief, "--vault", "v"])[0]
+        with open(os.path.join(vault, "draft.md"), "w", encoding="utf-8") as fh:
+            fh.write("# not committed\n")
+        check("git vault: uncommitted notes refuse the start (the clone would miss them)", spawn("gd-claude", "claude") == 1)
+        os.remove(os.path.join(vault, "draft.md"))
+        os.makedirs(os.path.join(vault, "docs"))
+        core.write_json_atomic(core.CONFIG, {"vaults": {"v": os.path.join(vault, "docs")}})
+        check("a vault inside a git repository is refused (it would be written in place)", spawn("gs-claude", "claude") == 1)
+        core.write_json_atomic(core.CONFIG, {"vaults": {"v": vault}})
         orders = {}
         for rt in RUNTIMES:
             stop_all()
@@ -372,6 +391,8 @@ def test_vault():
             with open(os.path.join(core.task_dir(tid), "TASK.md"), encoding="utf-8") as fh:
                 order = fh.read()
             orders[rt] = order.replace(rt, "<rt>")
+            check(f"{rt}: git vault: ignored tool settings are copied into the clone",
+                  os.path.isfile(os.path.join(clone, ".obsidian", "app.json")))
             check(f"{rt}: git vault: work order names the clone and the branch",
                   f"Vault (your private clone of {os.path.realpath(vault)}, branch yt/{tid}" in order, order)
             stop_all()
@@ -466,6 +487,8 @@ def test_parity():
                                                    toml + '[plugins."extra@m"]\nenabled = true\n'), 1),
         ("Codex instruction key", fake_home(md, md, linked, None, 'developer_instructions = "x"\n' + toml), 1),
         ("global instructions at 200 lines or more", fake_home(md * 100, md * 100, linked, None, toml), 2),
+        ("200 lines without a final newline still count", fake_home((md * 100).rstrip("\n"), md * 100,
+                                                                     linked, None, toml), 2),
     ]
     for name, home, want in cases:
         got = real.problems(home, require_both=False)

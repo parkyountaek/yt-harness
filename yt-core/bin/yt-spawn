@@ -54,7 +54,7 @@ coordinator's conversation; everything you need is in this file.
    `yt-status waiting-human --question "<one sentence>"` and wait. After the reply, `yt-status running`.
 3. Write the final answer to `{task_dir}/out/result.md` (overwrite), then run `yt-status done`.
    If you cannot finish, run `yt-status failed --reason "<one sentence>"`.
-4. The sandbox limits you to the task folder; do not work around it.
+4. The sandbox limits you to the task folder and the folders listed above; do not work around it.
 5. Where your user-level instructions conflict with this work order, the work order wins.
 6. Write result.md and your questions in the language of the brief unless it says otherwise.
 
@@ -159,11 +159,11 @@ def main(argv):
         vault = known[args.vault]
         if not (os.path.isdir(vault) and vault.startswith(core.HOME + "/")) or core.REPO.startswith(vault + "/"):
             return fail(f"vault {vault} must be an existing folder inside $HOME and must not contain the repo")
-        if os.path.lexists(os.path.join(vault, ".git")):
+        problem, top = gitwork.vault_problem(vault)
+        if problem:
+            return fail(problem)
+        if top:
             # A git vault: the session works on a private clone, never on the vault itself.
-            problem = gitwork.source_problem(vault)
-            if problem:
-                return fail(problem)
             source, vault = vault, os.path.join(core.task_dir(args.task_id), gitwork.CLONE)
     elif kind != "neutral":
         return fail(f"folderKind {kind!r} is not implemented (neutral, vault, repo, worktree)")
@@ -230,6 +230,8 @@ def main(argv):
     if source:
         try:
             repo = gitwork.prepare(args.task_id, source, writable=kind in ("worktree", "vault"), scope=args.scope)
+            if kind == "vault":
+                gitwork.copy_vault_settings(source, repo["repoClone"])
         except Exception as e:  # noqa: BLE001  a failed clone must end in a recorded state
             error = f"clone failed: {e}"
         with core.locked(core.REGISTRY_LOCK):

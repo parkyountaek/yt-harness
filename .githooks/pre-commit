@@ -1,6 +1,6 @@
 #!/bin/sh
 PY=$(command -v python3 || command -v python)  # Windows ships python, not python3
 ROOT=$(git rev-parse --show-toplevel)
-# Instruction files stay under 200 lines (AGENTS.md).
-/bin/sh "$ROOT/tests/instructions/run.sh" | grep FAIL && exit 1
+# Instruction files stay under 200 lines (AGENTS.md); checks the staged content.
+"$PY" "$ROOT/tests/instructions/run.py" --staged >/dev/null || { "$PY" "$ROOT/tests/instructions/run.py" --staged; exit 1; }
 exec "$PY" "$ROOT/.githooks/repo_guard.py" pre-commit

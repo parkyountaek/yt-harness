@@ -82,8 +82,8 @@ def claude_side(home=HOME):
     plugins = {k.split("@")[0] for k, v in (settings.get("enabledPlugins") or {}).items() if v}
     dirs = (settings.get("env") or {}).get("CLAUDE_CODE_PLUGIN_DIRS", "")
     plugins |= {os.path.basename(d.rstrip("/")) for d in dirs.split(os.pathsep) if d and not core.is_mod_dir(d)}
-    text = "\n".join(p for p in parts if p)
-    return {"instructions": _norm(text), "lines": text.count("\n"),
+    return {"instructions": _norm("\n".join(p for p in parts if p)),
+            "lines": sum(len(p.splitlines()) for p in parts),
             "hooks": sorted((settings.get("hooks") or {}).keys()),
             "plugins": plugins,
             "outputStyle": settings.get("outputStyle")}
@@ -101,7 +101,7 @@ def codex_side(home=HOME):
         hooks = {"(unreadable hooks.json)": True}
     plugins = {k.split("@")[0] for k, v in (cfg.get("plugins") or {}).items()
                if isinstance(v, dict) and v.get("enabled", True)}
-    return {"instructions": _norm(text), "lines": text.count("\n"),
+    return {"instructions": _norm(text), "lines": len(text.splitlines()),
             "instructionKeys": [k for k in CODEX_INSTRUCTION_KEYS if cfg.get(k)],
             "hooks": sorted(hooks.keys()),
             "plugins": plugins}

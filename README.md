@@ -490,7 +490,7 @@ python3 tests/metrics/run.py         # same session as Claude and Codex logs -> 
 python3 tests/guard/run.py           # yt-guard decisions, Claude- and Codex-shaped events
 python3 tests/contract/run.py         # same scenarios on Claude and Codex, fake runner, no model
 python3 tests/contract/run.py --live  # plus one real task on both runtimes (model calls)
-tests/instructions/run.sh    # instruction files stay under 200 lines
+tests/instructions/run.py    # instruction files stay under 200 lines
 ```
 
 ## Rules for contributors

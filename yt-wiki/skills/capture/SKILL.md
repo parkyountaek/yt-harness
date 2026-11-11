@@ -16,7 +16,7 @@ The vault path is in `TASK.md`. Write the way this vault already does.
 4. Otherwise create the note per `newNotes`, `fileName`, and `metadata`. Record the
    source (input file or "brief") and today's date the vault's way (`source`/`captured`
    in YAML, `source::`/`captured::` in Logseq). Link related notes in its link style.
-   One subject per note, short and factual. For a docs site, add the page to the
+   One subject per note, short and factual, in the brief's language. For a docs site, add the page to the
    navigation only when it lists pages explicitly.
 5. Never touch tool folders (`.obsidian/`, `logseq/`, templates) or unrelated notes.
 6. Run `yt-mask` on every note you wrote; fix findings with `yt-mask --fix` and say
