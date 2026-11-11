@@ -35,6 +35,9 @@ Stop at the first match.
    ## Ask the human   which open choices need a human decision (or "none")
    ```
 
+   If the human wants a method the harness has a skill for (yt-code: `tdd`), name it in
+   the Goal, e.g. "Use TDD."
+
 5. `yt-spawn <id> <harness> --runtime <claude|codex> [--deadline 30m]`, with the runtime
    you are running in unless the human asks otherwise. Add `--vault <name>` or
    `--repo <name>` only when the route names one.
