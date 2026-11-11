@@ -66,8 +66,6 @@ def session_start(event):
         lines.append("Follow it with the harness skill " + ", ".join(f"`{s}`" for s in skills) + ".")
     if event.get("source") in ("compact", "clear", "resume"):
         lines.append("Your context was reset or resumed: re-read TASK.md and out/status.json before you continue.")
-    lines.append("Report only with `yt-status`. The session may end only after `yt-status done`, "
-                 "`yt-status failed --reason ...`, or `yt-status waiting-human --question ...`.")
     print("\n".join(lines))
     return 0
 

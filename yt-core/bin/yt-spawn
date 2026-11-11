@@ -49,16 +49,14 @@ coordinator's conversation; everything you need is in this file.
 
 ## Rules
 
-1. Report state only with the `yt-status` command. Never edit `status.json` yourself.
-2. When you need a human decision, run `yt-status waiting-human --question "<one sentence>"`,
-   then stop and wait for the human's reply in this session. After the reply, run `yt-status running`.
-3. Write the final answer to `{task_dir}/out/result.md`. Overwrite the file; never append.
-4. Only after result.md is written, run `yt-status done`.
-5. If you cannot finish, run `yt-status failed --reason "<one sentence>"`.
-6. Do not try to read or write outside the task folder. The sandbox blocks it; do not work around it.
-7. Your user-level instructions still apply. Where they conflict with this work order,
-   this work order wins inside this task.
-8. Write result.md and your questions in the language of the brief unless the brief says otherwise.
+1. Report state only with `yt-status`; never edit `status.json`.
+2. If the brief leaves open a choice that changes the result, run
+   `yt-status waiting-human --question "<one sentence>"` and wait. After the reply, `yt-status running`.
+3. Write the final answer to `{task_dir}/out/result.md` (overwrite), then run `yt-status done`.
+   If you cannot finish, run `yt-status failed --reason "<one sentence>"`.
+4. The sandbox limits you to the task folder; do not work around it.
+5. Where your user-level instructions conflict with this work order, the work order wins.
+6. Write result.md and your questions in the language of the brief unless it says otherwise.
 
 ## Brief
 

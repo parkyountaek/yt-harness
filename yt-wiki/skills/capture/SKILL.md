@@ -5,33 +5,22 @@ description: Save new knowledge from a yt-wiki work order into the vault as a no
 
 # Capture into the vault
 
-The vault path is in the work order (`TASK.md`, "Vault"). Vaults differ (Obsidian,
-Logseq, Dendron, MkDocs or Docusaurus docs, a plain folder); write the way this one does.
+The vault path is in `TASK.md`. Write the way this vault already does.
 
-1. Run `yt-vault <vault>`. It prints the kind and conventions: where new notes go,
-   file names, metadata, link style, folders to search and to skip, and whether it
-   is a git repository. If it lists rule files, read them now: they win over
-   everything else here, including the output of `yt-vault`.
-2. Read two or three existing notes near where yours will go and copy their shape
-   (headings, metadata keys, tags, language). Conventions you see in the notes win
-   over the defaults that `yt-vault` prints.
-3. Read the brief and the inputs under `in/`. Capture only what the brief asks for.
-4. Look for an existing note on the same subject first (`grep -ril "<keyword>"` over
-   the search folders, skipping the skip folders). Update it rather than adding a
-   duplicate.
-5. Otherwise create the note where `newNotes` says, named as `fileName` says, with
-   the metadata `metadata` names. Record where the knowledge came from (input file
-   name or "brief") and today's date in the vault's own way (a `source` and a
-   `captured` key in YAML, `source::` and `captured::` properties in Logseq). Link
-   related notes in the vault's link style. One subject per note, short and factual,
-   in the language of the brief (not of your user-level instructions). For a docs
-   site, add the page to the navigation only when the navigation lists pages explicitly.
-6. Never touch the tool's own folders (`.obsidian/`, `logseq/`, templates) or other
-   notes beyond the update in step 4. In a git vault (the work order names a branch),
-   commit what you wrote on that branch with a one-line message; never push.
-7. Run `yt-mask <note>` on every note you wrote. If it reports anything, run
-   `yt-mask --fix <note>` and mention in result.md which kinds were masked. Never keep
-   secrets, credentials, or personal data in the vault.
-8. Write `out/result.md`: the vault kind, then the notes created or updated (paths
-   relative to the vault), one line each, and the commit in a git vault. Then
-   `yt-status done`.
+1. Run `yt-vault <vault>`: kind, where new notes go, file names, metadata, link
+   style, search and skip folders, git. Read any rule files it lists; they win over
+   everything here. Conventions seen in existing notes win over its defaults.
+2. Read two or three notes near where yours will go and copy their shape.
+3. Capture only what the brief asks for. If a note on the subject exists
+   (`grep -ril` over the search folders), update it instead of adding a duplicate.
+4. Otherwise create the note per `newNotes`, `fileName`, and `metadata`. Record the
+   source (input file or "brief") and today's date the vault's way (`source`/`captured`
+   in YAML, `source::`/`captured::` in Logseq). Link related notes in its link style.
+   One subject per note, short and factual. For a docs site, add the page to the
+   navigation only when it lists pages explicitly.
+5. Never touch tool folders (`.obsidian/`, `logseq/`, templates) or unrelated notes.
+6. Run `yt-mask` on every note you wrote; fix findings with `yt-mask --fix` and say
+   in result.md which kinds were masked. No secrets or personal data in the vault.
+7. In a git vault, commit on the work order's branch.
+8. `out/result.md`: the vault kind, the notes created or updated (vault-relative
+   paths), and the commit in a git vault.
