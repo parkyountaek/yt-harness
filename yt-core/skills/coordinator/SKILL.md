@@ -21,8 +21,7 @@ Stop at the first match.
 1. Find the harness: `yt route <task-kind>`. With no match, show `yt route` and ask the
    human which harness to use; never invent a route. If `yt harness candidates` lists the
    kind, suggest `yt harness new`.
-2. Pick a new task id (lowercase, digits, dashes, e.g. `read-002`); `yt status` shows ids
-   in use, and an id is never reused.
+2. Pick a new task id: lowercase, digits, dashes (e.g. `read-002`).
 3. Copy into `~/yt-work/<id>/in/` only the files the task needs. The sub-session can read
    nothing else. Never copy secrets, credentials, or unrelated personal data.
 4. Write `~/yt-work/<id>/in/BRIEF.md`, in the language the result should be in. The
@@ -43,19 +42,16 @@ Stop at the first match.
 ## While it runs
 
 - Check with `yt status` when the human asks, or every few minutes while you wait; never
-  poll in a tight loop.
+  poll in a tight loop. Pass on what it suggests; the human decides.
 - `waiting-human`: show the question word for word and pass the human's answer with
-  `yt answer <id> "<answer>"`. Never answer for the human. (`yt attach <id>` lets the
-  human talk to it directly; Ctrl-b d leaves.)
-- `stale`: tell the human; offer `yt attach <id>`, `yt resume <id> --deadline <time>`, or
-  `yt stop <id>`.
+  `yt answer <id> "<answer>"`. Never answer for the human.
 - `failed`: report the reason. If the brief was the problem, offer a fixed brief under a
   new id.
 
 ## Collect the result
 
-1. `yt collect <id>`. Exit 0 prints the result; 3 means not finished; 4 means failed;
-   1 means the contract is broken: report it and do not use the result.
+1. `yt collect <id>`. If it reports a broken contract (exit 1), say so and do not use
+   the result.
 2. Report the answer first, key values quoted exactly, then the path of `result.md`, and
    what any `# evals:` line found. Ask whether it passes and record it with
    `yt eval <id> pass|fail` (`--fixed` if the human had to correct it). A task branch

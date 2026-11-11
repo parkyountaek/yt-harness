@@ -465,6 +465,7 @@ def test_parity():
         ("plugin enabled in Codex only", fake_home(md, md, linked, None,
                                                    toml + '[plugins."extra@m"]\nenabled = true\n'), 1),
         ("Codex instruction key", fake_home(md, md, linked, None, 'developer_instructions = "x"\n' + toml), 1),
+        ("global instructions at 200 lines or more", fake_home(md * 100, md * 100, linked, None, toml), 2),
     ]
     for name, home, want in cases:
         got = real.problems(home, require_both=False)

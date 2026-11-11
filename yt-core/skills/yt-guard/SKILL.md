@@ -11,6 +11,5 @@ The block message says what was blocked and what to do instead.
 2. Tell the human in one or two sentences what was blocked and why you needed it.
 3. Offer the alternative from the message, or ask the human to run the step and share
    the output that matters (never the secret itself).
-4. To allow a category, the human restarts the session with `YT_GUARD_ALLOW=<category>`
-   in their own shell. Setting it inside a command has no effect; never suggest editing
-   hook or guard files.
+4. Never set `YT_GUARD_ALLOW` yourself or suggest editing hook or guard files; lifting a
+   block is the human's call, as the message says.

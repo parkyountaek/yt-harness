@@ -82,7 +82,8 @@ def claude_side(home=HOME):
     plugins = {k.split("@")[0] for k, v in (settings.get("enabledPlugins") or {}).items() if v}
     dirs = (settings.get("env") or {}).get("CLAUDE_CODE_PLUGIN_DIRS", "")
     plugins |= {os.path.basename(d.rstrip("/")) for d in dirs.split(os.pathsep) if d and not core.is_mod_dir(d)}
-    return {"instructions": _norm("\n".join(p for p in parts if p)),
+    text = "\n".join(p for p in parts if p)
+    return {"instructions": _norm(text), "lines": text.count("\n"),
             "hooks": sorted((settings.get("hooks") or {}).keys()),
             "plugins": plugins,
             "outputStyle": settings.get("outputStyle")}
@@ -100,10 +101,13 @@ def codex_side(home=HOME):
         hooks = {"(unreadable hooks.json)": True}
     plugins = {k.split("@")[0] for k, v in (cfg.get("plugins") or {}).items()
                if isinstance(v, dict) and v.get("enabled", True)}
-    return {"instructions": _norm(text),
+    return {"instructions": _norm(text), "lines": text.count("\n"),
             "instructionKeys": [k for k in CODEX_INSTRUCTION_KEYS if cfg.get(k)],
             "hooks": sorted(hooks.keys()),
             "plugins": plugins}
+
+
+INSTRUCTION_LIMIT = 200   # the same limit as the repository's instruction files
 
 
 def problems(home=HOME, require_both=True):
@@ -118,6 +122,9 @@ def problems(home=HOME, require_both=True):
     if c["instructions"] != x["instructions"]:
         out.append("global instructions differ: ~/.claude/CLAUDE.md (+ rules/) and ~/.codex/AGENTS.md "
                    "(or AGENTS.override.md) must have the same text")
+    for name, side in (("~/.claude/CLAUDE.md (+ rules/)", c), ("~/.codex/AGENTS.md", x)):
+        if side["lines"] >= INSTRUCTION_LIMIT:
+            out.append(f"{name} has {side['lines']} lines; keep global instructions under {INSTRUCTION_LIMIT}")
     if x["instructionKeys"]:
         out.append("~/.codex/config.toml sets " + ", ".join(x["instructionKeys"]) + "; Claude has no equivalent")
     if c["outputStyle"]:
