@@ -100,8 +100,9 @@ ANSWER_PROMPT = ("The human answered your question: {answer}\n"
                  "Run `yt-status running`, then continue the work order in {task_dir}/TASK.md.")
 
 
-EFFORTS = ("low", "medium", "high", "xhigh", "max")
-MODEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+EFFORTS = {"claude": ("low", "medium", "high", "xhigh", "max"),
+           "codex": ("low", "medium", "high", "xhigh", "max", "ultra")}
+MODEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(\[1m\])?")   # e.g. opus[1m]: Claude's 1M context
 
 
 def workspace(cwd=None):
@@ -125,7 +126,7 @@ def saved_models(ws=None):
 
 def save_model(harness_name, runtime, model, effort=None, ws=None):
     """Save (or with model None, forget) the choice for a harness and runtime in a workspace."""
-    check_model(model, effort)
+    check_model(model, effort, runtime)
     with core.locked(core.CONFIG + ".lock"):
         config = core.read_json(core.CONFIG, {}) or {}
         per = config.setdefault("models", {}).setdefault(ws or workspace(), {}).setdefault(harness_name, {})
@@ -136,11 +137,11 @@ def save_model(harness_name, runtime, model, effort=None, ws=None):
         core.write_json_atomic(core.CONFIG, config)
 
 
-def check_model(model, effort):
+def check_model(model, effort, runtime):
     if model and not MODEL_NAME.fullmatch(str(model)):
         raise ValueError(f"bad model name {model!r}")
-    if effort and effort not in EFFORTS:
-        raise ValueError(f"bad effort {effort!r}; use one of {', '.join(EFFORTS)}")
+    if effort and effort not in EFFORTS[runtime]:
+        raise ValueError(f"bad effort {effort!r} for {runtime}; use one of {', '.join(EFFORTS[runtime])}")
 
 
 def pick_model(harness_name, runtime, model=None, effort=None):
@@ -148,7 +149,7 @@ def pick_model(harness_name, runtime, model=None, effort=None):
     harness in this workspace (yt model), else None (the runtime's own default)."""
     saved = saved_models().get(harness_name, {}).get(runtime) or {}
     model, effort = model or saved.get("model"), effort or saved.get("effort")
-    check_model(model, effort)
+    check_model(model, effort, runtime)
     return model, effort
 
 
@@ -157,7 +158,9 @@ def available_models(runtime):
     if runtime == "claude":
         return [("haiku", "fastest and cheapest; simple, well-specified work"),
                 ("sonnet", "balanced; most everyday work"),
-                ("opus", "most capable; hard or judgement-heavy work")]
+                ("opus", "most capable; hard or judgement-heavy work"),
+                ("fable", "newest family; check its cost before making it a default"),
+                ("<alias>[1m]", "any of the above with a 1M-token context, e.g. opus[1m]")]
     cache = core.read_json(os.path.join(os.environ.get("CODEX_HOME") or os.path.join(core.HOME, ".codex"),
                                         "models_cache.json"), {}) or {}
     return [(m.get("slug"), (m.get("description") or "").strip()) for m in cache.get("models") or []
