@@ -1,6 +1,6 @@
 ---
 name: adr
-description: Record an architecture decision (ADR) for a yt-code work order. Use instead of code-change when the brief asks for an ADR or to record a design decision. Do not use outside a yt-harness sub-session.
+description: Record an architecture decision (ADR) for a yt-code work order. Use instead of code-change when the brief asks you to write an ADR (not to implement an existing one). Do not use outside a yt-harness sub-session.
 ---
 
 # Architecture decision record
@@ -14,9 +14,10 @@ description: Record an architecture decision (ADR) for a yt-code work order. Use
 3. Ground the context in the repository: name the code, constraints, and numbers the
    decision rests on. List the options the brief or the code makes real, each with its
    main trade-off; do not invent options to fill a section.
-4. If the brief does not settle the decision, ask with
-   `yt-status waiting-human --question "<one sentence>"` instead of choosing for the
-   human. Status is `Proposed` unless the brief says the decision is made.
+4. If the brief says the decision is made, record it as `Accepted`. Otherwise write it
+   as `Proposed` with your recommendation and why; ask with
+   `yt-status waiting-human --question "<one sentence>"` only when the brief wants it
+   accepted but leaves the decision open.
 5. One decision per ADR, about a page. If an earlier ADR is replaced, mark it
    superseded the way the repository does. Change no code unless the brief asks.
 6. Commit, following the repository's commit style.

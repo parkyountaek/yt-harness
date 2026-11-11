@@ -1,6 +1,6 @@
 ---
 name: spec
-description: Write a specification before code for a yt-code work order, and implement it when the brief asks. Use instead of code-change when the brief asks for a spec, PRD, or spec-first work. Do not use outside a yt-harness sub-session.
+description: Write a specification before code for a yt-code work order, and implement it when the brief asks. Use instead of code-change when the brief asks you to write a spec or PRD first (not when one is given as input). Do not use outside a yt-harness sub-session.
 ---
 
 # Spec first
@@ -13,8 +13,9 @@ description: Write a specification before code for a yt-code work order, and imp
 3. Write the spec, short: Goal, Scope and non-goals, Behavior (each as a checkable
    statement), Done criteria. Base it on the brief and the code; mark anything the
    brief leaves open as an open question rather than deciding it.
-4. If an open question changes the behavior, ask with
-   `yt-status waiting-human --question "<one sentence>"` before implementing.
+4. For a spec-only task, open questions stay in the spec: they are part of the result.
+   Before implementing, ask with `yt-status waiting-human --question "<one sentence>"`
+   about any open question that changes the behavior.
 5. Commit the spec alone. Stop here unless the brief asks for the implementation.
 6. When it does: implement exactly the behavior the spec lists, run the repository's
    tests or checks, and add a test only for behavior that has none. Commit
