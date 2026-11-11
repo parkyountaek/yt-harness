@@ -13,9 +13,10 @@ description: How to carry out a yt-code work order (a code change on a private c
 3. Make the smallest change that meets the brief. Run the repository's tests or
    checks that cover it when they exist and can run here.
 4. Commit on the task branch, saying what changed and why. Leave nothing uncommitted.
-   If the brief has you implement a spec or PRD file in the repository: Once it is fully implemented and the checks pass, delete it in a last commit
-   (git history keeps it), fix links to it, and rerun the checks; skip this when only
-   part is implemented or the repository's rules keep specs.
+   If the brief has you implement a spec or PRD file in the repository, delete it in a
+   last commit once all of it is implemented and the checks pass (git history keeps
+   it), fix links to it, and rerun the checks. Keep it when only part is implemented
+   or the repository's rules keep specs.
 5. `out/result.md`: what changed (files and why), `git log --oneline` of the branch,
    the checks you ran and their result (say plainly when one failed or could not
    run), and anything left undone.
