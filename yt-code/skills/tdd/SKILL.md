@@ -8,7 +8,8 @@ description: Carry out a yt-code work order test-first (red, green, refactor). U
 1. Read the files under `in/` and the repository's own rules (AGENTS.md, CLAUDE.md,
    README, contributing notes). Find how its tests run.
 2. Work only in the clone on the branch the work order names. Never add remotes or
-   change git config or hooks.
+   change git config or hooks. Commit only source files: never caches or build output
+   (`__pycache__/`, `node_modules/`, ...), even when the repository does not ignore them.
 3. Red: write the smallest test that states the brief's behavior. Run it and see it
    fail for the expected reason. Commit the test alone (`test: ...`).
 4. Green: make the smallest code change that passes it, without changing the test.
