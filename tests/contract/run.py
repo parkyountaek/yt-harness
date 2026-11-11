@@ -267,6 +267,26 @@ def scenario(rt):
     again = launch.runtime_argv(rt, "yt-ops", out, "sid-1", "go on", resume=True, interactive=False)
     mode = (lambda argv: "-p" in argv) if rt == "claude" else (lambda argv: argv[:2] == ["codex", "exec"])
     obs["headless argv"] = (mode(start), mode(again), "sid-1" in again, start[-1], again[-1])
+    # model and effort: the harness default, a flag overrides it, resume keeps it
+    launch.save_model("yt-ops", rt, "m-1", "low")
+    model, effort = launch.pick_model("yt-ops", rt)
+    elsewhere = tempfile.mkdtemp(dir=ROOT)
+    obs["choice is per workspace"] = launch.saved_models(launch.workspace(elsewhere)) == {}
+    launch.save_model("yt-ops", rt, "m-2")
+    changed = launch.pick_model("yt-ops", rt)[0]
+    launch.save_model("yt-ops", rt, None)
+    obs["choice can change and reset"] = (changed, launch.pick_model("yt-ops", rt)[0])
+    launch.save_model("yt-ops", rt, "m-1", "low")
+    picked = launch.runtime_argv(rt, "yt-ops", out, "sid-1", "go", interactive=False, model=model, effort=effort)
+    shown = (["--model", model, "--effort", effort] if rt == "claude"
+             else ["-c", f'model="{model}"', "-c", f'model_reasoning_effort="{effort}"'])
+    obs["harness model and effort"] = (bool(model), effort, all(x in picked for x in shown))
+    obs["flag overrides effort"] = launch.pick_model("yt-ops", rt, effort="high")[1]
+    try:
+        launch.pick_model("yt-ops", rt, effort="huge")
+        obs["bad effort refused"] = False
+    except ValueError:
+        obs["bad effort refused"] = True
     return obs
 
 
@@ -282,7 +302,9 @@ EXPECTED = {
     "unreadable status": "failed", "dirty out/": (1, False), "concurrency": [0, 0, 0, 2],
     "forget stopped": (0, False), "collect done": 0, "collect not finished": 3, "collect failed": 4,
     "answer when not waiting": 1, "answer": (0, True), "route": (0, 1), "spawn refused when harness off": (1, False),
-    "headless argv": (True, True, True, "go", "go on"), "profile writes out/": True, "profile reads task": True,
+    "headless argv": (True, True, True, "go", "go on"),
+    "harness model and effort": (True, "low", True), "choice is per workspace": True,
+    "choice can change and reset": ("m-2", None), "flag overrides effort": "high", "bad effort refused": True, "profile writes out/": True, "profile reads task": True,
     "profile denies escapes": True,
 }
 
@@ -346,6 +368,8 @@ def test_vault():
             stop_all()
             check(f"{rt}: resume keeps the vault", yt("resume", f"va-{rt}") == 0
                   and os.path.realpath(vault) in open(gen, encoding="utf-8").read())
+            check(f"{rt}: no saved model: the runtime default (no model flag)",
+                  not any(x in json.dumps(last_session(f"va-{rt}")["argv"]) for x in ("--model", "model=")))
             del argv
         # A git vault is never written directly: a private clone on branch yt/<task id>.
         for args in (["init", "-q", "-b", "main"], ["-c", "user.name=T", "-c", "user.email=t@example.invalid",

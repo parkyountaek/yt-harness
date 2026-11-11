@@ -9,6 +9,7 @@ permissions: read-only     # read-only | write
 sandbox:                   # enforced for every runtime by the shared sandbox-exec profile
   read: ["<task-folder>"]  # everything else under $HOME is denied
   write: ["<task-folder>/out/"]
+workload: light            # light | standard | heavy: guides the model the human picks (yt model)
 deadlineDefault: 2h
 evals: []                  # scripts in this folder that print pass|fail; yt collect runs them
 runtimes: []               # list only runtimes that passed the equivalence tests

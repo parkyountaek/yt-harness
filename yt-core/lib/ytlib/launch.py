@@ -100,19 +100,87 @@ ANSWER_PROMPT = ("The human answered your question: {answer}\n"
                  "Run `yt-status running`, then continue the work order in {task_dir}/TASK.md.")
 
 
-def runtime_argv(runtime, harness, out_dir, session_id, prompt, resume=False, interactive=True):
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+MODEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def workspace(cwd=None):
+    """The project the coordinator runs in: the git root above cwd, else cwd itself."""
+    path = os.path.realpath(cwd or os.getcwd())
+    probe = path
+    while True:
+        if os.path.exists(os.path.join(probe, ".git")):
+            return probe
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            return path
+        probe = parent
+
+
+def saved_models(ws=None):
+    """The human's model choices for a workspace (~/yt-local/config.json
+    "models" {workspace: {harness: {runtime: {model, effort}}}})."""
+    return ((core.read_json(core.CONFIG, {}) or {}).get("models") or {}).get(ws or workspace()) or {}
+
+
+def save_model(harness_name, runtime, model, effort=None, ws=None):
+    """Save (or with model None, forget) the choice for a harness and runtime in a workspace."""
+    check_model(model, effort)
+    with core.locked(core.CONFIG + ".lock"):
+        config = core.read_json(core.CONFIG, {}) or {}
+        per = config.setdefault("models", {}).setdefault(ws or workspace(), {}).setdefault(harness_name, {})
+        if model:
+            per[runtime] = {"model": model, **({"effort": effort} if effort else {})}
+        else:
+            per.pop(runtime, None)
+        core.write_json_atomic(core.CONFIG, config)
+
+
+def check_model(model, effort):
+    if model and not MODEL_NAME.fullmatch(str(model)):
+        raise ValueError(f"bad model name {model!r}")
+    if effort and effort not in EFFORTS:
+        raise ValueError(f"bad effort {effort!r}; use one of {', '.join(EFFORTS)}")
+
+
+def pick_model(harness_name, runtime, model=None, effort=None):
+    """(model, effort) for a run: the yt-spawn flags, else the human's saved choice for the
+    harness in this workspace (yt model), else None (the runtime's own default)."""
+    saved = saved_models().get(harness_name, {}).get(runtime) or {}
+    model, effort = model or saved.get("model"), effort or saved.get("effort")
+    check_model(model, effort)
+    return model, effort
+
+
+def available_models(runtime):
+    """[(name, description)] the human can pick from on this machine."""
+    if runtime == "claude":
+        return [("haiku", "fastest and cheapest; simple, well-specified work"),
+                ("sonnet", "balanced; most everyday work"),
+                ("opus", "most capable; hard or judgement-heavy work")]
+    cache = core.read_json(os.path.join(os.environ.get("CODEX_HOME") or os.path.join(core.HOME, ".codex"),
+                                        "models_cache.json"), {}) or {}
+    return [(m.get("slug"), (m.get("description") or "").strip()) for m in cache.get("models") or []
+            if isinstance(m, dict) and m.get("slug") and "review" not in m.get("slug")]
+
+
+def runtime_argv(runtime, harness, out_dir, session_id, prompt, resume=False, interactive=True,
+                 model=None, effort=None):
     """Command line for one run. interactive=False is print/exec mode (headless runner)."""
     harness_path = core.harness_dir(harness)
     if runtime == "claude":
         sid = ["--resume", session_id] if resume else ["--session-id", session_id]
+        pick = [*(["--model", model] if model else []), *(["--effort", effort] if effort else [])]
         return ["claude", *([] if interactive else ["-p"]), "--plugin-dir", harness_path, *claude_isolation(),
-                *CLAUDE_NO_MCP, *sid, "--dangerously-skip-permissions", prompt]
+                *CLAUDE_NO_MCP, *pick, *sid, "--dangerously-skip-permissions", prompt]
     # Codex: the shared sandbox is the enforcement layer, so Codex's own sandbox is off
     # (the two cannot be nested). The harness plugin is installed disabled and enabled per run.
     if "." in out_dir:
         # Codex splits -c keys on dots, so the trust key would be misread.
         raise RuntimeError(f"task folder path must not contain '.': {out_dir}")
     flags = [*codex_isolation(harness), *codex_no_mcp(), "-c", f"projects.{out_dir}.trust_level=trusted"]
+    flags += [*(["-c", f'model="{model}"'] if model else []),
+              *(["-c", f'model_reasoning_effort="{effort}"'] if effort else [])]
     if not interactive:
         # exec and exec resume take the same settings as -c values.
         flags += ["-c", 'sandbox_mode="danger-full-access"', "-c", 'approval_policy="never"', "--skip-git-repo-check"]
@@ -221,7 +289,7 @@ def find_codex_session(out_dir, since, timeout=30, scan=20):
 
 
 def start(task_id, harness_name, harness, runtime, runner_name, session_id, resume=False, answer=None,
-          vault=None, repo_source=None, repo_clone=None):
+          vault=None, repo_source=None, repo_clone=None, model=None, effort=None):
     """Wrap the runtime in the shared sandbox and start it with the runner. Returns (handle, session_id).
 
     answer: resume with the human's answer as the prompt (headless runner).
@@ -235,7 +303,7 @@ def start(task_id, harness_name, harness, runtime, runner_name, session_id, resu
     else:
         prompt = (RESUME_PROMPT if resume else START_PROMPT).format(task_dir=task_dir)
     interactive = getattr(runner, "INTERACTIVE", True)
-    cmd = runtime_argv(runtime, harness_name, out_dir, session_id, prompt, resume, interactive)
+    cmd = runtime_argv(runtime, harness_name, out_dir, session_id, prompt, resume, interactive, model, effort)
     policy = core.resolve_policy(harness, task_dir, vault, repo_clone)
     # The session also needs to read yt-core (for yt-status), the harness, and the Python install.
     extra_read = [core.CORE, core.harness_dir(harness_name), os.path.realpath(sys.base_prefix)]

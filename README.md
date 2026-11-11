@@ -156,6 +156,8 @@ yt forget read-001                          # drop a finished task from the list
 yt panel                                    # what needs you, what runs, harness health
 yt watch                                    # live task view + desktop notices, any terminal
 yt route read-check                         # which harness handles a task kind
+yt model yt-ops                             # model choice per harness in this project, and the models here
+yt model yt-ops claude sonnet low           # pick one (the coordinator recommends from the workload); reset to forget
 yt metrics --days 7                         # success rate, tokens, turns per harness and runtime
 yt harness list                             # harnesses, versions, on/off, Codex copies
 yt harness off yt-ops                       # refuse new sub-sessions of a harness

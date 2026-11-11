@@ -19,6 +19,12 @@ Usage:
                                            repository as a new branch (never merges or overwrites)
   yt answer <task-id> "<text>"             type the human's answer into a waiting-human session
   yt metrics [--days N]                    per harness and runtime: tasks, success rate, tokens, turns
+  yt model [<harness>]                     the model and effort chosen per harness and runtime in this
+                                           workspace (the project you run in); with a harness: its
+                                           workload and the models available here
+  yt model <harness> <claude|codex> <model> [<effort>]
+                                           save the choice for this workspace; the default from then on
+                                           (run it again to change it; <model> reset forgets it)
   yt harness list                          harnesses: version, on/off, Codex copy, routes
   yt harness on|off <name>                 allow or refuse new sub-sessions of a harness
   yt harness new <name> "<purpose>"        scaffold a new (experimental) harness from the template
@@ -198,7 +204,7 @@ def cmd_resume(task_id, deadline_arg=None, answer=None):
     try:
         handle, _ = launch.start(task_id, e["harness"], harness, e["runtime"], e["runner"], sid, resume=True,
                                  answer=answer, vault=e.get("vaultPath"), repo_source=e.get("repoSource"),
-                                 repo_clone=e.get("repoClone"))
+                                 repo_clone=e.get("repoClone"), model=e.get("model"), effort=e.get("effort"))
     except Exception as ex:  # noqa: BLE001
         error = str(ex) or ex.__class__.__name__
 
@@ -450,6 +456,41 @@ def cmd_card(task_id):
     return 0
 
 
+def cmd_model(rest):
+    if len(rest) >= 3:
+        harness, runtime, model, effort = rest[0], rest[1], rest[2], (rest[3] if len(rest) > 3 else None)
+        if harness not in core.harness_names() or runtime not in ("claude", "codex"):
+            return fail(f"unknown harness or runtime: {harness} {runtime}")
+        if model == "reset":
+            launch.save_model(harness, runtime, None)
+            print(f"yt: {harness} on {runtime} in {launch.workspace()}: choice forgotten (runtime default)")
+            return 0
+        try:
+            launch.save_model(harness, runtime, model, effort)
+        except ValueError as ex:
+            return fail(str(ex))
+        print(f"yt: {harness} on {runtime} in {launch.workspace()} now uses {model}"
+              + (f", effort {effort}" if effort else ""))
+        return 0
+    names = rest or core.harness_names()
+    if rest and rest[0] not in core.harness_names():
+        return fail(f"unknown harness {rest[0]}")
+    saved = launch.saved_models()
+    print(f"workspace: {launch.workspace()}")
+    for name in names:
+        choice = saved.get(name, {})
+        shown = "  ".join(f"{rt}: " + (f"{c['model']}/{c.get('effort', 'default')}" if (c := choice.get(rt)) else "not chosen")
+                          for rt in ("claude", "codex"))
+        print(f"{name:<12} workload {core.load_harness(name).get('workload', '?'):<9} {shown}")
+    if rest:
+        for rt in ("claude", "codex"):
+            print(f"\n{rt} models here:")
+            for slug, desc in launch.available_models(rt):
+                print(f"  {slug:<16} {desc}")
+        print(f"\neffort: {' | '.join(launch.EFFORTS)}")
+    return 0
+
+
 def cmd_harness(action, name=None):
     names = core.harness_names()
     if action == "list":
@@ -526,6 +567,8 @@ def main(argv):
             return cmd_improve(rest[0])
         if cmd == "card" and len(rest) == 1:
             return cmd_card(rest[0])
+        if cmd == "model" and len(rest) in (0, 1, 3, 4):
+            return cmd_model(rest)
         if cmd == "harness" and rest[:1] == ["list"] and len(rest) == 1:
             return cmd_harness("list")
         if cmd == "harness" and rest[:1] in (["on"], ["off"]) and len(rest) == 2:

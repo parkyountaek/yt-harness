@@ -4,6 +4,7 @@
 Usage:
   yt-spawn <task-id> <harness> [--runtime claude|codex] [--runner tmux|headless|orca] [--experimental]
            [--deadline 30m|2h|<ISO 8601>] [--brief <file>] [--vault <name>] [--repo <name>]
+           [--model <name>] [--effort low|medium|high|xhigh|max]
 
 Task folder: ~/yt-work/<task-id>/
   in/        inputs prepared by the human (read-only to the session)
@@ -19,6 +20,11 @@ with `yt bring`), never on the repository itself. A folderKind: vault harness al
 --vault <name>, one of "vaults" in ~/yt-local/config.json; the session may read
 and write inside that folder. A vault that is a git repository is never written
 directly: the session gets a private clone on branch yt/<task id>, like worktree.
+
+Model and effort come from the human's choice for the harness and runtime in this
+workspace, the project yt-spawn runs in (`yt model`),
+made once from the harness's workload; --model/--effort change them for one task only.
+`yt resume` keeps the task's choice.
 
 Exit codes: 0 started, 1 duplicate task id, bad input, or start failure, 2 concurrency limit reached.
 """
@@ -109,6 +115,8 @@ def main(argv):
     ap.add_argument("--repo", help="repository name for folderKind: repo or worktree harnesses")
     # Paths a worktree branch may change; set by `yt improve --propose`, enforced by collect and bring.
     ap.add_argument("--scope", action="append", help=argparse.SUPPRESS)
+    ap.add_argument("--model", help="model for this task (default: the harness's model for the runtime)")
+    ap.add_argument("--effort", help="effort for this task (default: the harness's effort)")
     ap.add_argument("--experimental", action="store_true", help="allow a harness marked experimental: true")
     args = ap.parse_args(argv)
 
@@ -136,6 +144,10 @@ def main(argv):
                     f"pass --experimental to try it on {args.runtime}")
     if args.harness in core.disabled_harnesses():
         return fail(f"harness {args.harness} is turned off; `yt harness on {args.harness}` to use it")
+    try:
+        model, effort = launch.pick_model(args.harness, args.runtime, args.model, args.effort)
+    except ValueError as e:
+        return fail(str(e))
     vault = source = None
     kind = harness.get("folderKind")
     if args.repo and kind not in ("repo", "worktree"):
@@ -221,7 +233,8 @@ def main(argv):
                                   "runner": args.runner, "runnerHandle": None, "runtimeSessionId": session_id,
                                   "deadline": core.iso(deadline), "startedAt": core.iso(start), "starting": True,
                                   **({"vault": args.vault, "vaultPath": vault} if vault else {}),
-                                  **({"repo": args.repo} if args.repo else {})}
+                                  **({"repo": args.repo} if args.repo else {}),
+                                  **({"model": model} if model else {}), **({"effort": effort} if effort else {})}
         core.save_sessions(reg)
 
     # The clone is made outside the lock (a large repository takes a while).
@@ -245,7 +258,7 @@ def main(argv):
         try:
             handle, session_id = launch.start(args.task_id, args.harness, harness, args.runtime,
                                               args.runner, session_id, vault=vault, repo_source=repo.get("repoSource"),
-                                              repo_clone=repo.get("repoClone"))
+                                              repo_clone=repo.get("repoClone"), model=model, effort=effort)
         except Exception as e:  # noqa: BLE001  any start failure must end in a recorded state
             error = str(e) or e.__class__.__name__
 
@@ -262,10 +275,15 @@ def main(argv):
 
     core.update_status(task_dir, record)
     core.log_event("spawn", taskId=args.task_id, harness=args.harness, harnessVersion=harness.get("version"),
-                   runtime=args.runtime, runner=args.runner, ok=error is None)
+                   runtime=args.runtime, runner=args.runner, model=model, effort=effort, ok=error is None)
     if error:
         return fail(f"start failed: {error}")
     print(f"yt-spawn: started {args.task_id} ({args.harness}, {args.runtime}, {args.runner} handle {handle})")
+    if model or effort:
+        print(f"yt-spawn: model {model or 'runtime default'}, effort {effort or 'runtime default'}")
+    else:
+        print(f"yt-spawn: no model chosen for {args.harness} on {args.runtime} yet (runtime default used); "
+              f"see `yt model {args.harness}`")
     if session_id is None:
         print("yt-spawn: warning: Codex session id not found yet; `yt resume` will look again",
               file=sys.stderr)

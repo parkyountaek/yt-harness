@@ -1,6 +1,6 @@
 schema: 1
 id: yt-ops
-version: 0.1.0
+version: 0.1.1
 purpose: Read-only investigation
 description: "First example harness: read-only investigation"
 tools: [git]
@@ -9,6 +9,7 @@ permissions: read-only
 sandbox:
   read: ["<task-folder>"]
   write: ["<task-folder>/out/"]
+workload: light            # reading and summarizing; the model is the human's choice (yt model)
 deadlineDefault: 2h
 evals: ["evals/result.py"]
 runtimes: [claude, codex]   # passed the contract tests and live evals on both

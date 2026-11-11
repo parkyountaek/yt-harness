@@ -1,6 +1,6 @@
 {
   "name": "yt-wiki",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Knowledge vault harness: capture notes into a vault and answer questions from it",
   "skills": "./skills/",
   "interface": {

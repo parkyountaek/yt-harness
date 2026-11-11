@@ -1,6 +1,6 @@
 {
   "name": "yt-improve",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Improvement proposals: reads a harness's results and case cards, proposes a skill change on a branch",
   "skills": "./skills/",
   "interface": {

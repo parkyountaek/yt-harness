@@ -38,6 +38,12 @@ Stop at the first match.
 5. `yt-spawn <id> <harness> --runtime <claude|codex> [--deadline 30m]`, with the runtime
    you are running in unless the human asks otherwise. Add `--vault <name>` or
    `--repo <name>` only when the route names one.
+   If `yt model <harness>` shows no choice for the runtime, recommend two or three of the
+   models it lists, each with effort and one line why, from the harness's workload (light:
+   the cheapest that is reliable; heavy: the most capable). Save the human's pick with
+   `yt model <harness> <runtime> <model> <effort>`; it is the default in this project from then on.
+   When the human asks to change it, run `yt model` again (or `... reset`) right away. Use
+   `--model`/`--effort` for one task only when it is clearly harder than usual.
 
 ## While it runs
 

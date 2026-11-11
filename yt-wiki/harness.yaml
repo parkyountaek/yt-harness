@@ -1,6 +1,6 @@
 schema: 1
 id: yt-wiki
-version: 0.3.0
+version: 0.3.1
 purpose: Knowledge vault: capture notes and answer from them
 description: "Knowledge vault harness: capture notes into a vault and answer questions from it"
 tools: [git]               # only in a git vault: commit on the task branch
@@ -9,6 +9,7 @@ permissions: write
 sandbox:                   # the session can write the vault and its out/, nothing else
   read: ["<task-folder>", "<vault>"]
   write: ["<task-folder>/out/", "<vault>"]
+workload: light            # notes in the vault's existing shape; the model is the human's choice (yt model)
 deadlineDefault: 1h
 evals: ["evals/result.py"]
 runtimes: [claude, codex]   # passed the contract tests and live evals on both
