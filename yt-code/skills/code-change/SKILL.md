@@ -1,6 +1,6 @@
 ---
 name: code-change
-description: How to carry out a yt-code work order (a code change on a private clone). Use when a work order (TASK.md) names the yt-code harness, unless the brief asks for TDD (then use tdd). Do not use outside a yt-harness sub-session.
+description: How to carry out a yt-code work order (a code change on a private clone). Use when a work order (TASK.md) names the yt-code harness, unless the brief asks for TDD, an ADR, or a spec (then use tdd, adr, or spec). Do not use outside a yt-harness sub-session.
 ---
 
 # Code change

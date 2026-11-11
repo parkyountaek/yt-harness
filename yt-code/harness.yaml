@@ -1,6 +1,6 @@
 schema: 1
 id: yt-code
-version: 0.2.2
+version: 0.3.0
 purpose: Code change on a private clone of a repository
 description: "Code change harness: works on a private clone, commits on branch yt/<task id>, never pushes"
 tools: [git]
