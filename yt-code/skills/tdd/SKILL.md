@@ -11,16 +11,17 @@ description: Carry out a yt-code work order test-first (red, green, refactor). U
    change git config or hooks. Commit only source files: never caches or build output
    (`__pycache__/`, `node_modules/`, ...), even when the repository does not ignore them.
 3. Red: write the smallest test that states the brief's behavior. Run it and see it
-   fail for the expected reason. Commit the test alone (`test: ...`).
+   fail for the expected reason. Commit the test alone.
 4. Green: make the smallest code change that passes it, without changing the test.
-   Run the related tests. Commit (`feat:` or `fix: ...`).
+   Run the related tests. Commit. Follow the repository's commit style; without one,
+   prefix `test:`, then `feat:` or `fix:`.
 5. Refactor only if it clearly helps, with the tests passing; commit separately.
    Repeat 3-5 for each behavior the brief asks for.
 6. Keep tests lean: one test per behavior the brief names, plus an edge case only when
    the brief or a real bug calls for it. No tests for trivial code, no duplicate cases,
    no new test helpers or mocks beyond what the test needs.
-7. If the repository has no test setup that can run here, stop and ask with
-   `yt-status waiting-human` rather than skipping the red step.
+7. If the repository has no test setup that can run here, ask with
+   `yt-status waiting-human --question "<one sentence>"` rather than skipping the red step.
 8. `out/result.md`: each behavior with its test, the failing output from the red step
    (one or two lines), the passing run, `git log --oneline` of the branch, and
    anything left undone.

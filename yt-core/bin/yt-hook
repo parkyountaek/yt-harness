@@ -63,7 +63,9 @@ def session_start(event):
     lines = [f"yt-harness sub-session for task {os.path.basename(task_dir)} (harness {harness or '?'}).",
              f"Work order: {task_dir}/TASK.md. Current state: {state}."]
     if skills:
-        lines.append("Follow it with the harness skill " + ", ".join(f"`{s}`" for s in skills) + ".")
+        lines.append(("Follow it with the harness skill " if len(skills) == 1 else
+                      "Follow it with one harness skill, picked by its description: ")
+                     + ", ".join(f"`{s}`" for s in skills) + ".")
     if event.get("source") in ("compact", "clear", "resume"):
         lines.append("Your context was reset or resumed: re-read TASK.md and out/status.json before you continue.")
     print("\n".join(lines))
