@@ -11,7 +11,7 @@ import tempfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "yt-core", "lib"))
-from ytlib import vault  # noqa: E402
+from ytlib import gitwork, vault  # noqa: E402
 
 results = {"pass": 0, "fail": 0}
 
@@ -73,6 +73,14 @@ def main():
     bad = subprocess.run([sys.executable, os.path.join(REPO, "yt-core", "bin", "yt-vault"), "/no/such"],
                          capture_output=True, text=True)
     check("yt-vault: a missing folder is an error", bad.returncode == 1)
+    src = make({".obsidian/app.json": {"newFileFolderPath": "Z"}})
+    clone, outside = make({}), make({})
+    os.symlink(outside, os.path.join(clone, ".obsidian"))
+    gitwork.copy_vault_settings(src, clone)
+    check("settings copy never follows a link out of the clone", os.listdir(outside) == [])
+    clone = make({})
+    gitwork.copy_vault_settings(src, clone)
+    check("settings copy: ignored Obsidian settings reach the clone", os.path.isfile(os.path.join(clone, ".obsidian", "app.json")))
     print(f"\n{results['pass']} passed, {results['fail']} failed")
     return 1 if results["fail"] else 0
 

@@ -73,9 +73,11 @@ def vault_problem(path):
     r = subprocess.run(["git", *SAFE_GIT, "rev-parse", "--show-toplevel"], cwd=path, capture_output=True,
                        timeout=60, env={**os.environ, **ISOLATED})
     if r.returncode != 0:
+        if os.path.lexists(os.path.join(path, ".git")):
+            return f"vault {path} has a .git that git cannot read; fix or remove it first", True
         return None, False
     top = os.path.realpath(r.stdout.decode("utf-8", "replace").strip())
-    if top != os.path.realpath(path):
+    if not os.path.samefile(top, path):
         return (f"vault {path} is inside the git repository {top}; register the repository root as the vault "
                 "(the session then works on a private clone)"), True
     problem = source_problem(path)
@@ -88,15 +90,27 @@ def vault_problem(path):
     return None, True
 
 
+def _no_links(root, rel):
+    """True when no part of root/rel is a symlink (so nothing leads outside root)."""
+    parts = rel.split("/")
+    return not any(os.path.islink(os.path.join(root, *parts[:i + 1])) for i in range(len(parts)))
+
+
 def copy_vault_settings(source, clone):
     """Copy the tool settings yt-vault reads into the clone when git did not bring them."""
-    if os.path.isdir(os.path.join(source, ".obsidian")):
-        os.makedirs(os.path.join(clone, ".obsidian"), exist_ok=True)   # it marks the kind
-    for rel in VAULT_SETTINGS:
+    for rel in (".obsidian",) + VAULT_SETTINGS:
         src, dst = os.path.join(source, rel), os.path.join(clone, rel)
-        if os.path.isfile(src) and not os.path.islink(src) and not os.path.lexists(dst):
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copyfile(src, dst)
+        if os.path.lexists(dst) or not (_no_links(source, rel) and _no_links(clone, os.path.dirname(rel) or ".")):
+            continue
+        try:
+            if rel == ".obsidian":
+                if os.path.isdir(src):
+                    os.mkdir(dst)   # the folder alone marks the kind
+            elif os.path.isfile(src):
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copyfile(src, dst)
+        except OSError:
+            pass   # a setting that cannot be copied only weakens yt-vault's guess
 
 
 # Git that yt runs itself loads no user or system config and ignores replacement refs.

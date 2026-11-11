@@ -30,7 +30,7 @@ def main():
         with open(f"{root}/{path}", encoding="utf-8", errors="replace") as f:
             return f.read()
 
-    paths = [p for p in git("-C", root, "ls-files", "-z").decode().split("\0") if p]
+    paths = [p for p in git("-C", root, "ls-files", "-z").decode("utf-8", "replace").split("\0") if p]
     targets = [p for p in paths if p == "AGENTS.md" or p.endswith("/SKILL.md")
                or re.search(r"(^|/)agents/[^/]+\.md$", p)]
     fail = []
