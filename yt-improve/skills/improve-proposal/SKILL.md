@@ -10,9 +10,13 @@ description: How to carry out a yt-improve work order (a proposal to change one 
    under its `skills/`, and `AGENTS.md`.
 2. Name the signal you act on (a success drop, human fixes, many turns or resumes,
    a failing eval) and the skill step that plausibly causes it. If the numbers are
-   too few or unclear, change nothing and say so.
+   too few or unclear, change nothing and say so. Check the recent skill changes
+   against the results: do not repeat a change that made a version worse, and if
+   the last comparison is worse, consider reverting that change first.
 3. Otherwise make the smallest change to the skill text and raise the patch part of
    `version:` in the target's `harness.yaml` (0.1.0 to 0.1.1). Nothing else: yt
-   rejects a branch outside that scope. Keep the skill under 200 lines. Commit.
+   rejects a branch outside that scope. Never change the shape of what the harness
+   delivers (the `out/` files and the layout its evals check). Keep the skill under
+   200 lines. Commit.
 4. `out/result.md`: the signal and its numbers, the change (or why none), the metric
    it should move and how to tell (`yt improve <harness>`), and the risk.

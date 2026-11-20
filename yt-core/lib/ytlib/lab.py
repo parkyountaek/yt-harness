@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 from . import core
+from . import gitwork
 from . import metrics
 
 EVALS = os.path.join(core.DATA, "evals.jsonl")
@@ -215,6 +216,30 @@ def eval_verdict(results):
 
 IMPROVER = "yt-improve"
 CARDS_IN_BRIEF = 5
+CHANGES_IN_BRIEF = 8
+VERSION_LINE = re.compile(r"^version:\s*(\S+)", re.M)
+
+
+def skill_history(harness):
+    """Recent commits to the harness's skills, newest first: [(version, subject)].
+
+    Commit subjects are repo content, not task content, so they may go in the brief.
+    The version is the one in harness.yaml at that commit. yt-improve raises it in the
+    same commit, so its rows line up with the per-version results; a commit that did
+    not raise it shipped in the next version.
+    """
+    rows = []
+    try:
+        log = gitwork._git("log", f"-{CHANGES_IN_BRIEF}", "--format=%H%x09%s", "--", f"{harness}/skills/",
+                           cwd=core.REPO)
+        for line in log.splitlines():
+            sha, _, subject = line.partition("\t")
+            yaml = gitwork._git("show", f"{sha}:{harness}/harness.yaml", cwd=core.REPO, check=False)
+            m = VERSION_LINE.search(yaml)
+            rows.append((m.group(1) if m else "?", subject))
+    except (OSError, RuntimeError, subprocess.SubprocessError):
+        return []
+    return rows
 
 
 def improve_scope(harness):
@@ -246,6 +271,9 @@ def improve_brief(harness):
     lines += [f"- {v} by {j}{' (human had to fix it)' if fixed else ''}: {n}" for (v, j, fixed), n in sorted(counts.items())]
     if not evals:
         lines.append("- none recorded")
+    lines += ["", "## Recent skill changes (newest first; the version is harness.yaml at that commit, exact only when the commit raised it)", ""]
+    history = skill_history(harness)
+    lines += [f"- {v}: {subject}" for v, subject in history] if history else ["- none recorded"]
     lines += ["", "## Case cards of failed or fixed tasks (shape only, no content)", ""]
     lines += ["```json", json.dumps(cards, indent=2, ensure_ascii=False), "```"] if cards else ["- none"]
     lines += ["", "## Scope", "",

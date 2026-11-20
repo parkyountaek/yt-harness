@@ -1,6 +1,6 @@
 schema: 1
 id: yt-improve
-version: 0.1.1
+version: 0.1.2
 purpose: Propose a change to one harness's skills from its numbers
 description: "Improvement proposals: reads a harness's results and case cards, proposes a skill change on a branch"
 tools: [git]

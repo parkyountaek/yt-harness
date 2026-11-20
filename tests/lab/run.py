@@ -173,6 +173,11 @@ def main():
     check("brief: the per-version table", "| 0.1.0 | 3 |" in brief and "| 0.2.0 |" in brief, brief[:400])
     check("brief: the comparison verdict", "Comparison of the last two versions:" in brief)
     check("brief: eval counts by verdict and judge", "- fail by human: 1" in brief, brief)
+    check("brief: skill changes section, empty for an unknown harness",
+          "## Recent skill changes" in brief and "- none recorded" in brief.split("## Recent skill changes")[1], brief)
+    history = lab.skill_history("yt-improve")
+    check("skill history: version and subject per commit", history and all(v != "?" and s for v, s in history),
+          history)
     check("brief: the scope", "only `h/skills/` and the `version:` line of `h/harness.yaml`" in brief)
     check("brief: no task text", "title: x" not in brief and "Which file?" not in brief)
     check("scope: skills and the version line", lab.improve_scope("h") == ["h/skills/", "h/harness.yaml:version"])
